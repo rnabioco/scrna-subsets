@@ -1,0 +1,153 @@
+import glob
+import os
+
+''' rules to process scRNA-Seq data '''
+
+"""
+load the following modules prior to running:
+
+kallisto
+fastqc
+star
+hisat2
+bedtools
+samtools
+cufflinks
+seqtk
+umitools
+umi-tools
+subread
+R
+module load \
+  subread/1.4.4 \
+  star/2.5.1b \
+  kallisto/0.43.0 \
+  hisat2/2.0.4 \
+  cufflinks/2.2.0 \
+  bedtools/2.25.0 \
+  fastqc/0.10.1 \
+  samtools/1.3 
+
+"""
+
+
+configfile: "config_derivative_libs.yaml"
+  
+PROJECTS = config["PROJECTS"]
+
+SAMPLE = config["SAMPLE"]
+
+
+BIN = "../bin"
+KALLISTO_IDX = config["KALLISTO_IDX"]
+HISAT2_IDX = config["HISAT2_IDX"] 
+TRANSCRIPTS = config["TRANSCRIPTS"]
+EXON_DB = config["EXON_DB"]
+INTRON_DB = config["INTRON_DB"]
+NCRNA_DB = config["NCRNA_DB"]
+ALIGN_MOUSE = config['ALIGN_MOUSE']
+STAR_IDX = config['STAR_IDX']
+  
+R2_FQ = PROJECTS + "/fastq/original/" + SAMPLE + "_R2_001.fastq.gz"
+R1_FQ = PROJECTS + "/fastq/original/" + SAMPLE + "_R1_001.fastq.gz"
+
+CELL, = glob_wildcards(PROJECTS + "/fastq/demultiplexed/R1/{cell, Cell_.*}.fastq")
+if not CELL:
+   CELL, = glob_wildcards(PROJECTS + "/fastq/demultiplexed/R1/{cell, Cell_.*}.fastq.gz")
+
+if ALIGN_MOUSE:
+    MOUSE_TARGETS_BAM = expand("{projects}/hisat2/mouse/{cell}/{cell}_sorted.bam.bai",
+    projects=PROJECTS, cell=CELL) 
+    MOUSE_TARGETS_FCUMI = expand("{projects}/hisat2/mouse/feature_counts/{cell}_sorted_dedup.tsv",
+    projects=PROJECTS, cell=CELL) 
+    MOUSE_TARGETS_FC = expand("{projects}/hisat2/mouse/feature_counts/{cell}_sorted.tsv",
+    projects=PROJECTS, cell=CELL)
+    MOUSE_TARGETS_STAR = expand("{projects}/star/mouse/{cell}/{cell}_Aligned.sortedByCoord.out.bam.bai",
+    projects=PROJECTS, cell=CELL)
+    MOUSE_TARGETS_STAR_COUNTS = expand("{projects}/star/feature_counts/mouse/{cell}.tsv", 
+    projects=PROJECTS, cell=CELL)
+    MOUSEHUMAN_TARGETS_STAR = expand("{projects}/star/mousehuman/{cell}/{cell}_Aligned.sortedByCoord.out.bam.bai",
+    projects=PROJECTS, cell=CELL)
+    MOUSEHUMAN_TARGETS_STAR_COUNTS = expand("{projects}/star/feature_counts/mousehuman/{cell}.tsv", 
+    projects=PROJECTS, cell=CELL)
+ 
+    MOUSE_STAR_IDX = "../../shared_dbases/star_idx/mm38/"   
+    HISAT2_IDX_MOUSE = "../../shared_dbases/hisat2_idx/grcm38_tran/genome_tran"
+    TRANSCRIPTS_MOUSE = "../../shared_dbases/Mus_musculus.GRCm38.85.gtf"
+    EXON_DB_MOUSE = "../../shared_dbases/exons_pc_ensembl_chrm_grcm38.bed"
+    INTRON_DB_MOUSE = "../../shared_dbases/introns_pc_ensembl_chrm_grcm38.bed"
+    NCRNA_DB_MOUSE = "../../shared_dbases/ncRNA_emsembl_chrm_grcm38.bed"
+    
+    MOUSEHUMAN_STAR_IDX = "../../shared_dbases/star_idx/mm38hg38/"
+    TRANSCRIPTS_MOUSEHUMAN = "../../shared_dbases/human_mouse_metagenome.gtf"
+else:
+   
+    MOUSE_TARGETS_BAM = MOUSE_TARGETS_FCUMI = MOUSE_TARGETS_FC = MOUSE_TARGETS_STAR = MOUSE_TARGETS_STAR_COUNTS = PROJECTS + "/fastq/stats/mapping_stats.txt" 
+   
+
+# need to remove unneccessary rule all targets..."
+rule all:
+  input: 
+#    expand("{projects}/fastq/demultiplexed/R1/{cell}.fastq",
+#    projects=PROJECTS, cell=CELL),
+    expand("{projects}/fastq/demultiplexed/R1/{cell}.fastq.gz", projects=PROJECTS, cell=CELL),
+    expand("{projects}/fastq/demultiplexed/R1/{cell}_reads_ids.txt.gz", projects=PROJECTS, cell=CELL),
+    expand("{projects}/fastq/demultiplexed/R2/{cell}.fastq.gz", projects=PROJECTS, cell=CELL ),
+    expand("{projects}/fastq/demultiplexed/R1reads.done", projects=PROJECTS),
+#    expand("{projects}/kallisto_aln/{cell}/abundance.tsv",
+#    projects=PROJECTS, cell=CELL),
+#    expand("{projects}/kallisto_aln/{cell}/bam/{cell}.bam",
+#    projects=PROJECTS, cell=CELL),
+#    expand("{projects}/kallisto_aln/kallisto_count_matrix.rds",
+#    projects=PROJECTS),
+#    expand("{projects}/kallisto_aln/kallisto_tpm_matrix.rds",
+#    projects=PROJECTS),
+#    expand("{projects}/kallisto_aln/align_stats/{cell}_alignment_stats.txt",
+#    cell=CELL, projects=PROJECTS),
+#    expand("{projects}/kallisto_aln/{cell}/bam/{cell}_sorted.bam.bai", cell=CELL,
+#    projects=PROJECTS),
+#    expand('{projects}/kallisto_aln/{cell}/bam/{cell}_umidedup.bam',
+#    cell=CELL, projects=PROJECTS),
+    expand("{projects}/hisat2/{cell}/{cell}.bam",
+    cell=CELL, projects=PROJECTS),
+    expand("{projects}/hisat2/align_stats/{cell}_stats.txt",
+    cell=CELL, projects=PROJECTS),
+#    expand("{projects}/kallisto_aln/align_stats/{cell}_umidedup_alignment_stats.txt",
+#    cell=CELL, projects=PROJECTS),
+#    expand("{projects}/hisat2/annotation_stats/{cell}_annotation_stats.txt",
+#    projects=PROJECTS, cell=CELL),
+#    expand("{projects}/hisat2/cuffquant/{cell}/abundances.cxb", projects=PROJECTS,
+#    cell=CELL),
+#    expand("{projects}/hisat2/{cell}/{cell}_sorted.bam",
+#    projects=PROJECTS, cell=CELL),
+#    expand("{projects}/hisat2/cuffnorm/genes.attr_table",
+#    projects=PROJECTS),
+#    expand("{projects}/fastq/stats/mapping_stats.txt", projects=PROJECTS),
+    expand("{projects}/hisat2/{cell}/{cell}_sorted.bam.bai",
+    projects=PROJECTS, cell=CELL),
+    expand("{projects}/hisat2/{cell}/{cell}_sorted_dedup.bam", projects=PROJECTS, cell=CELL),
+#    expand("{projects}/kallisto_aln/{cell}/bam/{cell}_sorted_dedup.bam", projects=PROJECTS,
+#    cell=CELL),
+    expand("{projects}/hisat2/feature_counts/{cell}_sorted.tsv",
+    projects=PROJECTS, cell=CELL),
+    expand("{projects}/hisat2/feature_counts/{cell}_sorted_dedup.tsv",
+    projects=PROJECTS, cell=CELL),
+ #   expand("{projects}/kallisto_aln/{cell}/dedup/abundance.tsv",
+ #   projects=PROJECTS, cell=CELL),
+    expand("{projects}/star/{cell}/{cell}_Aligned.sortedByCoord.out.bam",
+    projects=PROJECTS, cell=CELL),
+    expand("{projects}/star/feature_counts/{cell}_dedup.tsv",
+    projects=PROJECTS, cell=CELL),
+    expand("{projects}/star/feature_counts/{cell}.tsv",
+    projects=PROJECTS, cell=CELL),
+    MOUSE_TARGETS_BAM, MOUSE_TARGETS_FCUMI, MOUSE_TARGETS_FC, MOUSE_TARGETS_STAR, MOUSE_TARGETS_STAR, MOUSEHUMAN_TARGETS_STAR_COUNTS
+
+if ALIGN_MOUSE:
+  include: 'rules/mouse_mapping.snake'
+  include: 'rules/star_mouse_mapping.snake'
+  include: 'rules/star_mousehuman_mapping.snake'
+
+include: 'rules/star_mapping.snake'
+include: 'rules/dedup_umi.snake'
+include: 'rules/mapping.snake'
+include: 'rules/demultiplex.snake'

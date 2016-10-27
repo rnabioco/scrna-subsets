@@ -1,0 +1,95 @@
+
+
+rule featureCount_star_dedup: 
+  input: 
+    "{projects}/star/{cell}/{cell}_Aligned.sortedByCoord.out_dedup.bam"
+  output:
+    "{projects}/star/feature_counts/{cell}_dedup.tsv"
+  params:
+    job_name = "{project.fCount}",
+    memory = "select[mem>25] rusage[mem=25]",
+  threads:
+    4
+  log:
+    "{projects}/star/logs/feature_counts/{cell}_dedup_counts.txt"
+  shell:
+    " featureCounts -R -s 1 -T {threads} -t exon -Q 10 -g gene_name -a {TRANSCRIPTS} -o {output} {input} "
+
+rule featureCount_star: 
+  input: 
+    "{projects}/star/{cell}/{cell}_Aligned.sortedByCoord.out.bam"
+  output:
+    "{projects}/star/feature_counts/{cell}.tsv"
+  params:
+    job_name = "{project.fCount}",
+    memory = "select[mem>25] rusage[mem=25]",
+  threads:
+    4
+  log:
+    "{projects}/star/logs/feature_counts/{cell}_counts.txt"
+  shell:
+    " featureCounts -R -s 1 -T {threads} -t exon -Q 10 -g gene_name -a {TRANSCRIPTS} -o {output} {input} "
+
+
+
+rule star_umi_tools_dedup:
+  input:
+    bam = "{projects}/star/{cell}/{cell}_Aligned.sortedByCoord.out.bam",
+    idx = "{projects}/star/{cell}/{cell}_Aligned.sortedByCoord.out.bam.bai"  
+  output:
+    "{projects}/star/{cell}/{cell}_Aligned.sortedByCoord.out_dedup.bam"
+  params:
+    job_name = "{project.dedup}",
+    memory = "select[mem>20] rusage[mem=20] span[hosts=1]",
+  log:
+    "{projects}/star/logs/umi_dedup/{cell}"
+  shell:
+    """
+    if samtools quickcheck {input.bam}
+    then
+      umi_tools dedup --method 'directional-adjacency' --output-stats {log} --log2stderr -I {input.bam} > {output} 
+    else
+      cp {input.bam} {output}
+    fi
+    """
+
+rule star_bam_idx:
+  input:
+    "{projects}/star/{cell}/{cell}_Aligned.sortedByCoord.out.bam",
+  output:
+    "{projects}/star/{cell}/{cell}_Aligned.sortedByCoord.out.bam.bai"
+  params:
+    job_name = "{projects}.bam_idx",
+    memory = "select[mem>4] rusage[mem=4]",
+  log:
+    "{projects}/star/logs/indexing/{cell}.txt"
+  shell:
+    """
+    if samtools quickcheck {input}
+    then 
+      samtools index -b {input} 2> {log}
+    else
+       touch {output}
+    fi
+    """
+
+rule star_align:
+  input:
+    "{projects}/fastq/demultiplexed/R2/{cell}_trimmed_umi.fastq.gz"
+  output:
+    bam = "{projects}/star/{cell}/{cell}_Aligned.sortedByCoord.out.bam",
+  params:
+    out_put = "{projects}/star/{cell}/{cell}_",
+    job_name = "{project.star}",
+    memory = "select[mem>50] rusage[mem=50]",
+  log:
+    "{projects}/star/logs/alignment/{cell}_align.txt"
+  threads: 6
+  shell:
+    " STAR --runThreadN {threads} --genomeDir {STAR_IDX} "
+    " --readFilesIn {input} --readFilesCommand gunzip -c  "
+    " --outSAMtype BAM SortedByCoordinate --runMode alignReads "
+    " --outFileNamePrefix {params.out_put} "
+    " --outSAMmultNmax 1 --outStd Log " 
+
+

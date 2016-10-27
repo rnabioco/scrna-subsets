@@ -1,0 +1,11 @@
+.DS_Store
+dbases/*
+data/*
+docs/*
+logs/*
+pipeline/.snakemake/*
+*.swp
+*.pyc
+results/*
+.err
+.out

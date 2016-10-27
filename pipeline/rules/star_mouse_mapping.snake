@@ -1,0 +1,58 @@
+
+
+rule alt_featureCount_star: 
+  input: 
+    "{projects}/star/mouse/{cell}/{cell}_Aligned.sortedByCoord.out.bam"
+  output:
+    "{projects}/star/feature_counts/mouse/{cell}.tsv"
+  params:
+    job_name = "{project.fCount}",
+    memory = "select[mem>25] rusage[mem=25]",
+  threads:
+    4
+  log:
+    "{projects}/star/logs/mouse/feature_counts/{cell}_counts.txt"
+  shell:
+    " featureCounts -s 1 -T {threads} -t exon -Q 10 -g gene_name -a {TRANSCRIPTS_MOUSE} -o {output} {input} "
+
+
+rule alt_star_bam_idx:
+  input:
+    "{projects}/star/mouse/{cell}/{cell}_Aligned.sortedByCoord.out.bam",
+  output:
+    "{projects}/star/mouse/{cell}/{cell}_Aligned.sortedByCoord.out.bam.bai"
+  params:
+    job_name = "{projects}.bam_idx",
+    memory = "select[mem>4] rusage[mem=4]",
+  log:
+    "{projects}/star/logs/mouse/indexing/{cell}.txt"
+  shell:
+    """
+     if samtools quickcheck {input}
+     then 
+       samtools index -b {input} 2> {log}
+     else
+       touch {output}
+     fi
+     """
+
+rule alt_star_align:
+  input:
+    "{projects}/fastq/demultiplexed/R2/{cell}_trimmed_umi.fastq.gz"
+  output:
+    bam = "{projects}/star/mouse/{cell}/{cell}_Aligned.sortedByCoord.out.bam",
+  params:
+    out_put = "{projects}/star/mouse/{cell}/{cell}_",
+    job_name = "{project.star}",
+    memory = "select[mem>50] rusage[mem=50]",
+  log:
+    "{projects}/star/logs/mouse_alignment/{cell}_align.txt"
+  threads: 6
+  shell:
+    " STAR --runThreadN {threads} --genomeDir {MOUSE_STAR_IDX} "
+    " --readFilesIn {input} --readFilesCommand gunzip -c  "
+    " --outSAMtype BAM SortedByCoordinate --runMode alignReads "
+    " --outFileNamePrefix {params.out_put} "
+    " --outSAMmultNmax 1 --outStd Log " 
+
+

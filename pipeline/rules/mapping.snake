@@ -1,0 +1,160 @@
+"rules to map with kallisto and hisat2"
+
+rule hisat_bam_idx:
+  input:
+    "{projects}/hisat2/{cell}/{cell}_sorted.bam"
+  output:
+    "{projects}/hisat2/{cell}/{cell}_sorted.bam.bai"
+  params:
+    job_name = "{projects}.bam_idx",
+    memory = "select[mem>4] rusage[mem=4]",
+  log:
+    "{projects}/hisat2/{cell}/logs/{cell}_ixd.txt"
+  shell:
+    " samtools index -b {input} 2> {log}"
+
+
+rule hisat2_bam_sort:
+  input:
+    "{projects}/hisat2/{cell}/{cell}.bam"
+  output:
+    "{projects}/hisat2/{cell}/{cell}_sorted.bam"
+  params:
+    job_name = "{projects}.bam_sort",
+    memory = "select[mem>4] rusage[mem=4]",
+  log:
+    "{projects}/hisat2/{cell}/bam/log/{cell}_sort.txt"
+  shell:
+    " samtools sort {input} -o {output} 2> {log}"
+
+
+
+rule hisat2_annotation:
+  input:
+    "{projects}/hisat2/{cell}/{cell}.bam"
+  output:  
+    "{projects}/hisat2/annotation_stats/{cell}_annotation_stats.txt"
+  params:
+    job_name = "{project.annotationstats}",
+    memory = "select[mem>25] rusage[mem=25]",
+  shell:
+    " {BIN}/annotation_stats.sh {input} {EXON_DB} {INTRON_DB} {NCRNA_DB} > {output}"
+
+
+#rule dedup_kallisto_align_stats:
+#  input:
+#    "{projects}/kallisto_aln/{cell}/bam/{cell}_umidedup.bam"
+#  output:
+#    "{projects}/kallisto_aln/align_stats/{cell}_umidedup_alignment_stats.txt"
+#  params:
+#    job_name = "{project.alignstats}",
+#    memory = "select[mem>6] rusage[mem=6]",
+#  log:
+#    "{projects}/kallisto_aln/{cell}/bam/log/align_umi.txt"
+#  shell:
+#    " python3 {BIN}/alignment_counts_kallisto.py -i {input} -o {output}"
+
+
+rule hisat2_align_stats:
+  input:
+    "{projects}/hisat2/{cell}/{cell}.bam",
+  output:
+    "{projects}/hisat2/align_stats/{cell}_stats.txt"
+  params:
+    job_name = "{project.hisat2stats}",
+    memory = "select[mem>4] rusage[mem=4]",
+  log:
+    "{projects}/hisat2/align_stats/log/{cell}_align_counts.txt"
+  shell:
+    "python3 {BIN}/alignment_counts_hisat2.py -i {input} -o {output} " 
+  
+rule hisat2:
+  input:
+    "{projects}/fastq/demultiplexed/R2/{cell}_trimmed_umi.fastq.gz"
+  output:
+    bam = "{projects}/hisat2/{cell}/{cell}.bam",
+    unpaired = "{projects}/hisat2/{cell}/{cell}_unaligned.fastq.gz"
+  params:
+    job_name = "{project.hisat2}",
+    memory = "select[mem>8] rusage[mem=8]",
+  log:
+    "{projects}/hisat2/{cell}/log/align.txt"
+  threads: 6
+  shell:
+    " hisat2 -p {threads} --rna-strandness F -q -U {input} "
+    " -x {HISAT2_IDX} --met-file {log} --un-gz {output.unpaired} "
+    " | samtools view -bS - > {output.bam} "
+
+#rule align_stats:
+#  input:
+#    "{projects}/kallisto_aln/{cell}/bam/{cell}.bam"
+## output:
+#    "{projects}/kallisto_aln/align_stats/{cell}_alignment_stats.txt"
+#  params:
+#    job_name = "{project.alignstats}",
+#    memory = "select[mem>6] rusage[mem=6]",
+#  log:
+#    "{projects}/kallisto_aln/{cell}/bam/log/align.txt"
+#  shell:
+#    " python3 {BIN}/alignment_counts_kallisto.py -i {input} -o {output}"
+#
+#rule kallisto_bam_sort:
+#  input:
+#    "{projects}/kallisto_aln/{cell}/bam/{cell}.bam",
+#  output:
+#    "{projects}/kallisto_aln/{cell}/bam/{cell}_sorted.bam",
+#  params:
+#    job_name = "{projects}.umi_sort",
+#    memory = "select[mem>4] rusage[mem=4]",
+#  log:
+#    "{projects}/kallisto_aln/{cell}/bam/log/{cell}_umi_sort.txt"
+#  shell:
+#    " samtools view -b -F 256 -F 4 {input} | samtools sort -T {output} - 2> {log} > {output}"
+#
+#
+#rule kallisto_bam_idx:
+#  input:
+#    "{projects}/kallisto_aln/{cell}/bam/{cell}_sorted.bam"
+#  output:
+#    "{projects}/kallisto_aln/{cell}/bam/{cell}_sorted.bam.bai"
+#  params:
+#    job_name = "{projects}.umi_idx",
+#    memory = "select[mem>4] rusage[mem=4]",
+#  log:
+#    "{projects}/kallisto_aln/{cell}/bam/log/{cell}_umi_idx.txt"
+#  shell:
+#    " samtools index -b {input} 2> {log}"
+#
+#
+#rule create_matrix:
+#  input:
+#    expand("{projects}/kallisto_aln/{cell}/abundance.tsv", projects=PROJECTS, cell=CELL),
+#  output:
+#   "{projects}/kallisto_aln/kallisto_count_matrix.rds",
+#   "{projects}/kallisto_aln/kallisto_tpm_matrix.rds"
+#  params:
+#    job_name = "{project.mergecounts}",
+#    memory = "select[mem>10] rusage[mem=10]",
+#    out_dir = "{projects}/kallisto_aln/"
+#  log:
+#    "{projects}/kallisto_aln/log/merge.txt"
+#  shell:
+#    " Rscript {BIN}/merge_kallisto.R {params.out_dir}"
+#
+#
+#rule kallisto:
+#  input:
+#    "{projects}/fastq/demultiplexed/R2/{cell}_trimmed_umi.fastq.gz"
+##  output:
+##    abundance = "{projects}/kallisto_aln/{cell}/abundance.tsv",
+##    out_dir = "{projects}/kallisto_aln/{cell}/",
+#    bam = "{projects}/kallisto_aln/{cell}/bam/{cell}.bam"
+#  params:
+#    job_name = '{projects}.kallisto',
+#    memory =  "select[mem>4] rusage[mem=4]"
+#  shell:
+#    "kallisto quant -i {KALLISTO_IDX} -o {output.out_dir} {input} " 
+#    " --single -l 295 -s 50 "
+#    " --fr-stranded --pseudobam | samtools view -bS - > {output.bam} "
+#
+

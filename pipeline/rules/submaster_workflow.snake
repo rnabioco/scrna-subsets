@@ -1,0 +1,113 @@
+import glob
+import os
+
+''' rules to unzip and demultiplex fastqs into per cell fastq '''
+
+
+configfile: "config_derivative_libs.yaml"
+  
+PROJECTS = config["PROJECTS"]
+
+SAMPLE = config["SAMPLE"]
+
+CHUNK, = glob_wildcards(PROJECTS + 
+  "/fastq/original/" + 
+  SAMPLE + 
+  "_R1_001_{chunk, \d+}.fastq.gz")
+
+BIN = "../bin"
+
+rule all:
+  input: 
+    expand('{projects}/fastq/original/fqsplit_check.done',
+    projects=PROJECTS),
+    expand('{projects}/fastq/original/fqsplit.done', projects=PROJECTS),
+    expand('{projects}/fastq/original/{sample}_barcode_keys.txt', sample=SAMPLE, projects=PROJECTS),
+    expand('{projects}/fastq/demultiplexed/R1.done', projects=PROJECTS),
+    expand('{projects}/fastq/original/fastqc/{sample}_R1_001_fastqc.zip', sample=SAMPLE,
+    projects=PROJECTS),
+    expand('{projects}/fastq/original/fastqc/{sample}_R2_001_fastqc.zip', sample=SAMPLE,
+    projects=PROJECTS),
+    expand('{projects}/fastq/demultiplexed/R1/{sample}_barcode_counts_{chunk}.txt',
+    projects=PROJECTS, chunk=CHUNK, sample=SAMPLE),
+ 
+subworkflow split_fq:
+  workdir: "./"
+  snakefile: "submaster_splitfq.snake"
+
+rule check_split_fq:
+  input:
+    split_fq('{projects}/fastq/original/fqsplit.done')
+  output:
+    touch('{projects}/fastq/original/fqsplit_check.done')
+  params:
+    memory = "select[mem>4] rusage[mem=4]",
+    job_name= 'check_demultiplex_R1.{projects}',
+  shell:
+    " echo `fqslplit done` "
+
+
+rule combine_R1_fqs:
+  input:
+    expand('{projects}/fastq/demultiplexed/R1/{sample}_barcode_counts_{chunk}.txt', projects=PROJECTS, chunk=CHUNK, sample=SAMPLE)
+  output:
+    touch('{projects}/fastq/demultiplexed/R1.done'),
+  params:
+    job_name = 'combine_R1_fq',
+    project = '{projects}/fastq/demultiplexed/R1/',
+    memory =  "select[mem>4] rusage[mem=4] span[hosts=1]"
+  log:
+    "{projects}/fastq/demultiplexed/logs/combine_r1.txt"
+
+  shell:
+    " {BIN}/combine_fastqs.sh {params.project} "
+
+rule demultiplex_R1:
+  input:
+    fq = '{projects}/fastq/original/{sample}_R1_001_{chunk,\d+}.fastq.gz',
+    barcodes = '{projects}/fastq/original/{sample}_barcode_keys.txt'
+  output:
+    '{projects}/fastq/demultiplexed/R1/{sample}_barcode_counts_{chunk, \d+}.txt',
+    '{projects}/fastq/demultiplexed/R1/{sample}_{chunk}/unmatched.fastq',
+  params:
+    job_name = 'demultiplexed.{sample}',
+    project = '{projects}/fastq/demultiplexed/R1/{sample}_{chunk, \d+}/',
+    memory =  "select[mem>4] rusage[mem=4] span[hosts=1]"
+  shell:
+    "gunzip -c {input.fq} | fastx_barcode_splitter.pl --bcfile {input.barcodes}"
+    " --prefix  '{params.project}' "
+    " --suffix '.fastq'"
+    " -bol --mismatches 1 > {output[0]}"
+
+rule extract_barcode_ids:
+  input:
+    '{projects}/fastq/original/{sample}_welllist.txt'
+  output:
+    '{projects}/fastq/original/{sample}_barcode_keys.txt'
+  params:
+    job_name = 'extract_barcode.{sample}',
+    memory =  "select[mem>4] rusage[mem=4] span[hosts=1]"
+  shell:
+    "Rscript {BIN}/format_barcodes.R {input} {output}"
+
+rule fastqc:
+  input:
+    R1 = '{projects}/fastq/original/{sample}_R1_001.fastq.gz',
+    R2 = '{projects}/fastq/original/{sample}_R2_001.fastq.gz'
+  output:
+    '{projects}/fastq/original/fastqc/{sample}_R1_001_fastqc.zip',
+    '{projects}/fastq/original/fastqc/{sample}_R2_001_fastqc.zip'
+  params:
+    out_dir = '{projects}/fastq/original/fastqc/',
+    job_name = '{sample}.fastqc',
+    memory =  "select[mem>80] rusage[mem=80] span[hosts=1]"
+  log:
+    '{projects}/fastq/original/fastqc/log/'
+  threads:
+    12
+  shell:
+    """ 
+    mkdir -p fastqc
+    fastqc -t {threads} -f fastq -o {params.out_dir} {input.R1} {input.R2} 
+    """
+    

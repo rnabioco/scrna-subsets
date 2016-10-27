@@ -1,0 +1,32 @@
+
+''' rules to split fastqs into smaller fastqs for parallel processing'''
+
+configfile: "../config_derivative_libs.yaml"
+
+PROJECTS = config["PROJECTS"]
+
+SAMPLE = config["SAMPLE"]
+
+BIN = "../bin"
+
+rule all:
+  input:
+    expand('../{projects}/fastq/original/fqsplit.done', projects = PROJECTS),
+    expand('../{projects}/fastq/original/{sample}_R1_001.fastq.gz',
+    projects=PROJECTS, sample=SAMPLE)
+
+rule split_fastqs:
+  input:
+    "../" + PROJECTS + "/fastq/original/" + SAMPLE + "_R1_001.fastq.gz"
+  output:
+    touch('../' + '{projects}/fastq/original/fqsplit.done')
+  params:
+    memory = "select[mem>50] rusage[mem=50] span[hosts=1]",
+    job_name = "fqsplit",
+    prefix = "../" + PROJECTS + "/fastq/original/" + SAMPLE + "_R1_001",
+    suffix = ".fastq.gz"
+  shell:
+    """
+    ../{BIN}/split_fastq.sh {input} 250000 {params.prefix} {params.suffix} 
+    """
+

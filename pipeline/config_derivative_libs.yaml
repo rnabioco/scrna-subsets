@@ -1,0 +1,36 @@
+# config for scRNA-SEQ snakemake pipeline #
+# setup for human datasets #
+ 
+PROJECTS: 
+  '../data/derivative_libs'
+
+SAMPLE:
+  '1_AGGCAGAA_L001'
+
+WORKFLOW:
+  'human'
+ 
+KALLISTO_IDX:
+  "../../shared_dbases/kallisto_idx/homo_GRCh38.idx"
+
+HISAT2_IDX:
+  "../../shared_dbases/hisat2_idx/grch38_tran/genome_tran"
+
+STAR_IDX:
+  "../../shared_dbases/star_idx/hg38/"
+
+TRANSCRIPTS:
+  "../../shared_dbases/Homo_sapiens.GRCh38.85.gtf"
+
+EXON_DB:
+  "../../shared_dbases/exons_pc_ensembl_chrm_grch38.bed"
+
+INTRON_DB:
+  "../../shared_dbases/introns_pc_ensembl_chrm_grch38.bed"
+
+NCRNA_DB:
+  "../../shared_dbases/ncRNA_ensembl_chrm_grch38.bed"
+
+ALIGN_MOUSE:
+  True
+
