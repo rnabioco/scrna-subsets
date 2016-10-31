@@ -80,7 +80,6 @@ rule check_demulitplex_workflow:
   params:
     memory = "select[mem>4] rusage[mem=4]",
     job_name= 'check_demultiplex_R1.{projects}',
-    dirs= '{projects}/fastq/demultiplexed/R1'
   shell:
     " echo 'R1 done' "
 

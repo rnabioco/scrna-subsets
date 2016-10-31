@@ -103,12 +103,16 @@ rule hisat_umi_tools_dedup:
     "{projects}/hisat2/logs/umi_dedup/{cell}"
   shell:
     """
+    module load python
+
     if samtools quickcheck {input.bam} 
     then
       umi_tools dedup --method 'directional-adjacency' --output-stats {log} --log2stderr -I {input.bam} > {output} 
     else
       cp {input.bam} {output}
     fi
+
+    module unload python
     """
 
 

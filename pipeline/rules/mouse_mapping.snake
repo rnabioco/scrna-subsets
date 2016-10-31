@@ -45,6 +45,7 @@ rule alt_species_hisat_umi_tools_dedup:
     "{projects}/hisat2/mouse/logs/umi_dedup/{cell}"
   shell:
     """
+    module load python
     lines=$(samtools idxstats {input.bam} | awk '{{sum+=$3}} END {{print sum}}') 
     if [[ "$lines" -gt 0 ]] 
     then
@@ -52,6 +53,7 @@ rule alt_species_hisat_umi_tools_dedup:
     else
       cp {input.bam} {output}
     fi
+    module unload python
     """
 
 rule alt_species_hisat_bam_idx:

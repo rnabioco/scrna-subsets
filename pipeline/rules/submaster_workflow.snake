@@ -4,7 +4,7 @@ import os
 ''' rules to unzip and demultiplex fastqs into per cell fastq '''
 
 
-configfile: "config_derivative_libs.yaml"
+configfile: "config_biotin_libs.yaml"
   
 PROJECTS = config["PROJECTS"]
 
@@ -56,11 +56,25 @@ rule combine_R1_fqs:
     job_name = 'combine_R1_fq',
     project = '{projects}/fastq/demultiplexed/R1/',
     memory =  "select[mem>4] rusage[mem=4] span[hosts=1]"
-  log:
-    "{projects}/fastq/demultiplexed/logs/combine_r1.txt"
-
   shell:
-    " {BIN}/combine_fastqs.sh {params.project} "
+    """
+    in_dir={params.project}
+    files=$(echo $in_dir*/*.fastq)
+    echo $in_dir 
+    echo $files 
+    for file in $files
+      do
+      new_file=$(basename $file)
+      cat $file >> $in_dir$new_file
+    done
+    
+    dirs=$(echo $in_dir*/)
+     for old_dir in $dirs
+      do
+      rm -f $old_dir*
+      rmdir $old_dir
+    done
+    """
 
 rule demultiplex_R1:
   input:

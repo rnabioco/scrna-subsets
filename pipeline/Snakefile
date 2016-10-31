@@ -1,3 +1,6 @@
+shell.executable("/bin/bash")
+shell.prefix("source ~/.bash_profile; ")
+
 import glob
 import os
 
@@ -31,7 +34,7 @@ module load \
 """
 
 
-configfile: "config_derivative_libs.yaml"
+configfile: "config_biotin_libs.yaml"
   
 PROJECTS = config["PROJECTS"]
 
