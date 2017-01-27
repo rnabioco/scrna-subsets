@@ -1,0 +1,71 @@
+
+''' rules to examine UMI diversity and structure '''
+
+
+rule check_aligned_umis:
+  """ 
+  redo star alignment with trimmed reads with umis added to read name,
+  regardless of UMI strucutre 
+  note that in main analysis reads with umis without proper structure are discarded prior
+  to alignment
+  """
+  input:
+    fq1 = '{projects}/fastq/demultiplexed/R1/{cell}.fastq.gz',
+    fq2 = '{projects}/fastq/demultiplexed/R2/{cell}_trimmed.fastq.gz',
+  output:
+    "{projects}/umis/realignment_stats/{cell}_stats.txt"
+  params:
+    outdir =  "{projects}/umis/realignments/{cell}",
+    umi_fq = '{projects}/umis/realignments/{cell}/{cell}_trimmed_umi.fastq.gz',
+    star_out = "{projects}/umis/realignments/{cell}/{cell}_",
+    star_out_bam = "{projects}/umis/realignments/{cell}/{cell}_Aligned.sortedByCoord.out.bam",
+    job_name = "{projects}.umistats",
+    memory = "select[mem>100] rusage[mem=100]",
+  log:
+    '{projects}/umis/logs/realignments/{cell}'
+  threads: 6
+  shell:
+    """
+    module load star
+    
+    mkdir -p {params.outdir}
+
+    python3 {BIN}/umi_to_fqname.py -f1 {input.fq1} -f2 {input.fq2} \
+      -u NNNNNNNNNNNNNNN | gzip > {params.umi_fq}
+
+    STAR --runThreadN {threads} --genomeDir {MOUSEHUMAN_STAR_IDX} \
+      --readFilesIn {params.umi_fq} --readFilesCommand gunzip -c   \
+      --outSAMtype BAM SortedByCoordinate --runMode alignReads \
+      --outFileNamePrefix {params.star_out} \
+      --outSAMmultNmax 1 --outStd Log 
+    
+    if samtools quickcheck {params.star_out_bam} 
+    then 
+      samtools index -b {params.star_out_bam} 2> {log}
+    else
+       touch {params.star_out_bam}.bai
+    fi
+    
+    {BIN}/check_umi_structure.py -b {params.star_out_bam} -o {output}
+    
+    rm -rf {params.outdir}
+    
+    module unload star
+    """  
+
+rule check_umis:
+  ''' get stats on number of reads in fastq with correct structure '''
+  input:
+    "{projects}/fastq/demultiplexed/R1/{cell}.fastq.gz"
+  output:
+    "{projects}/umis/structure_stats/{cell}_stats.txt"
+  params:
+    job_name = "{project.stats}",
+    memory = "select[mem>20] rusage[mem=20] span[hosts=1]",
+  log:
+    "{projects}/umis/logs/check_structure/{cell}_umistats.txt"
+  shell:
+    """
+    {BIN}/check_umi_structure.py -f {input} -o {output}
+    """
+

@@ -34,7 +34,7 @@ module load \
 """
 
 
-configfile: "config_biotin_libs.yaml"
+configfile: "config_phospho_libs.yaml"
   
 PROJECTS = config["PROJECTS"]
 
@@ -83,67 +83,38 @@ if ALIGN_MOUSE:
     
     MOUSEHUMAN_STAR_IDX = "../../shared_dbases/star_idx/mm38hg38/"
     TRANSCRIPTS_MOUSEHUMAN = "../../shared_dbases/human_mouse_metagenome.gtf"
-else:
-   
+else:  
     MOUSE_TARGETS_BAM = MOUSE_TARGETS_FCUMI = MOUSE_TARGETS_FC = MOUSE_TARGETS_STAR = MOUSE_TARGETS_STAR_COUNTS = PROJECTS + "/fastq/stats/mapping_stats.txt" 
    
-
-# need to remove unneccessary rule all targets..."
 rule all:
   input: 
-#    expand("{projects}/fastq/demultiplexed/R1/{cell}.fastq",
-#    projects=PROJECTS, cell=CELL),
+    expand("{projects}/fastq/demultiplexed/R1/{cell}.fastq", projects=PROJECTS, cell=CELL),
     expand("{projects}/fastq/demultiplexed/R1/{cell}.fastq.gz", projects=PROJECTS, cell=CELL),
     expand("{projects}/fastq/demultiplexed/R1/{cell}_reads_ids.txt.gz", projects=PROJECTS, cell=CELL),
-    expand("{projects}/fastq/demultiplexed/R2/{cell}.fastq.gz", projects=PROJECTS, cell=CELL ),
+    expand("{projects}/fastq/demultiplexed/R2/{cell}.fastq.gz", projects=PROJECTS, cell=CELL),
     expand("{projects}/fastq/demultiplexed/R1reads.done", projects=PROJECTS),
-#    expand("{projects}/kallisto_aln/{cell}/abundance.tsv",
-#    projects=PROJECTS, cell=CELL),
-#    expand("{projects}/kallisto_aln/{cell}/bam/{cell}.bam",
-#    projects=PROJECTS, cell=CELL),
-#    expand("{projects}/kallisto_aln/kallisto_count_matrix.rds",
-#    projects=PROJECTS),
-#    expand("{projects}/kallisto_aln/kallisto_tpm_matrix.rds",
-#    projects=PROJECTS),
-#    expand("{projects}/kallisto_aln/align_stats/{cell}_alignment_stats.txt",
-#    cell=CELL, projects=PROJECTS),
-#    expand("{projects}/kallisto_aln/{cell}/bam/{cell}_sorted.bam.bai", cell=CELL,
-#    projects=PROJECTS),
-#    expand('{projects}/kallisto_aln/{cell}/bam/{cell}_umidedup.bam',
-#    cell=CELL, projects=PROJECTS),
     expand("{projects}/hisat2/{cell}/{cell}.bam",
     cell=CELL, projects=PROJECTS),
     expand("{projects}/hisat2/align_stats/{cell}_stats.txt",
     cell=CELL, projects=PROJECTS),
-#    expand("{projects}/kallisto_aln/align_stats/{cell}_umidedup_alignment_stats.txt",
-#    cell=CELL, projects=PROJECTS),
-#    expand("{projects}/hisat2/annotation_stats/{cell}_annotation_stats.txt",
-#    projects=PROJECTS, cell=CELL),
-#    expand("{projects}/hisat2/cuffquant/{cell}/abundances.cxb", projects=PROJECTS,
-#    cell=CELL),
-#    expand("{projects}/hisat2/{cell}/{cell}_sorted.bam",
-#    projects=PROJECTS, cell=CELL),
-#    expand("{projects}/hisat2/cuffnorm/genes.attr_table",
-#    projects=PROJECTS),
-#    expand("{projects}/fastq/stats/mapping_stats.txt", projects=PROJECTS),
     expand("{projects}/hisat2/{cell}/{cell}_sorted.bam.bai",
     projects=PROJECTS, cell=CELL),
-    expand("{projects}/hisat2/{cell}/{cell}_sorted_dedup.bam", projects=PROJECTS, cell=CELL),
-#    expand("{projects}/kallisto_aln/{cell}/bam/{cell}_sorted_dedup.bam", projects=PROJECTS,
-#    cell=CELL),
-    expand("{projects}/hisat2/feature_counts/{cell}_sorted.tsv",
+    expand("{projects}/hisat2/{cell}/{cell}_sorted_dedup.bam",
     projects=PROJECTS, cell=CELL),
     expand("{projects}/hisat2/feature_counts/{cell}_sorted_dedup.tsv",
     projects=PROJECTS, cell=CELL),
- #   expand("{projects}/kallisto_aln/{cell}/dedup/abundance.tsv",
- #   projects=PROJECTS, cell=CELL),
     expand("{projects}/star/{cell}/{cell}_Aligned.sortedByCoord.out.bam",
     projects=PROJECTS, cell=CELL),
     expand("{projects}/star/feature_counts/{cell}_dedup.tsv",
     projects=PROJECTS, cell=CELL),
     expand("{projects}/star/feature_counts/{cell}.tsv",
     projects=PROJECTS, cell=CELL),
-    MOUSE_TARGETS_BAM, MOUSE_TARGETS_FCUMI, MOUSE_TARGETS_FC, MOUSE_TARGETS_STAR, MOUSE_TARGETS_STAR, MOUSEHUMAN_TARGETS_STAR_COUNTS
+    MOUSE_TARGETS_BAM, MOUSE_TARGETS_FCUMI, MOUSE_TARGETS_FC,
+    MOUSE_TARGETS_STAR, MOUSE_TARGETS_STAR, MOUSEHUMAN_TARGETS_STAR_COUNTS,
+    expand("{projects}/umis/structure_stats/{cell}_stats.txt",
+    projects=PROJECTS, cell=CELL),
+    expand("{projects}/umis/realignment_stats/{cell}_stats.txt",
+    projects=PROJECTS, cell=CELL),
 
 if ALIGN_MOUSE:
   include: 'rules/mouse_mapping.snake'
@@ -154,3 +125,4 @@ include: 'rules/star_mapping.snake'
 include: 'rules/dedup_umi.snake'
 include: 'rules/mapping.snake'
 include: 'rules/demultiplex.snake'
+include: 'rules/check_umis.snake'

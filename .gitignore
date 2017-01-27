@@ -10,3 +10,5 @@ results/*
 .err
 .out
 *.o
+*barcode_tag_bam
+*count_bcs

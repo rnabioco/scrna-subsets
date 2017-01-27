@@ -7,7 +7,7 @@ import os
 ''' rules to unzip and demultiplex fastqs into per cell fastq '''
 
 
-configfile: "config_biotin.yaml"
+configfile: "config_original.yaml"
   
 PROJECTS = config["PROJECTS"]
 IDS = config["IDS"]
@@ -27,17 +27,19 @@ rule all:
     projects=PROJECTS),
     expand('{projects}/fastq/original/fastqc/{ids}_R2_001_fastqc.zip',ids=IDS,
     projects=PROJECTS),
-    expand('{projects}/fastq/modified/combined_R1_001.fastq.gz',
+    #expand('{projects}/fastq/modified/renamed_{ids}_R2_001.fastq.gz',ids=IDS,
+    #projects=PROJECTS),
+    #expand('{projects}/fastq/modified/renamed_{ids}_R2_001_trimmed.fastq.gz',
+    #projects=PROJECTS, ids=IDS),
+    expand('{projects}/fastq/modified/combined_R2_trimmed.fastq.gz',
     projects=PROJECTS),
-    expand('{projects}/fastq/modified/combined_R2_001.fastq.gz',
-    projects=PROJECTS),
-    expand("{projects}/star/alignments/Aligned.sortedByCoord.out.bam",
-    projects=PROJECTS),
+    #expand("{projects}/star/alignments/Aligned.sortedByCoord.out.bam",
+    #projects=PROJECTS),
     {STAR_IDX_OUT},
-    expand("{projects}/star/alignments/Aligned_bc.bam",
-    projects=PROJECTS),
-    expand("{projects}/star/alignments/Aligned.sortedByCoord.out.bam.bai",
-    projects=PROJECTS),
+    #expand("{projects}/star/alignments/Aligned_bc.bam",
+    #projects=PROJECTS),
+    #expand("{projects}/star/alignments/Aligned.sortedByCoord.out.bam.bai",
+    #projects=PROJECTS),
     expand("{projects}/star/alignments/Aligned_bc_umi.bam",
     projects=PROJECTS),
     expand("{projects}/cell_bams/splitting_complete.txt",
@@ -70,8 +72,8 @@ rule append_umi_to_read_name:
     bam = "{projects}/star/alignments/Aligned_bc.bam",
     bai = "{projects}/star/alignments/Aligned_bc.bam.bai",
   output:
-    bam = "{projects}/star/alignments/Aligned_bc_umi.bam",
-    bai = "{projects}/star/alignments/Aligned_bc_umi.bam.bai",
+    bam = protected("{projects}/star/alignments/Aligned_bc_umi.bam"),
+    bai = protected("{projects}/star/alignments/Aligned_bc_umi.bam.bai"),
   params:
     job_name = "{project.tagumi}",
     memory = "select[mem>80] rusage[mem=80]",
@@ -90,8 +92,8 @@ rule barcode_bam:
     bam = "{projects}/star/alignments/Aligned.sortedByCoord.out.bam",
     bcs = "{projects}/fastq/original/" + BCS + "_barcode_keys.txt",
   output:
-    bam = "{projects}/star/alignments/Aligned_bc.bam",
-    bai = "{projects}/star/alignments/Aligned_bc.bam.bai",
+    bam = temp("{projects}/star/alignments/Aligned_bc.bam"),
+    bai = temp("{projects}/star/alignments/Aligned_bc.bam.bai"),
   params:
     job_name = "{project.tagbc}",
     memory = "select[mem>80] rusage[mem=80]",
@@ -99,23 +101,26 @@ rule barcode_bam:
     "{projects}/star/log/tag_bc.txt"
   shell:
     """
+    module load gcc
     {BIN}/barcode_tag_bam {input.bam} {input.bcs} {output.bam}
     samtools index {output.bam}
+    module unload gcc
     """
 
 rule star_align:
   input:
     "{projects}/fastq/modified/combined_R2_trimmed.fastq.gz"
   output:
-    bam = "{projects}/star/alignments/Aligned.sortedByCoord.out.bam",
-    bai = "{projects}/star/alignments/Aligned.sortedByCoord.out.bam.bai",
+    bam = temp("{projects}/star/alignments/Aligned.sortedByCoord.out.bam"),
+    bai =
+    temp("{projects}/star/alignments/Aligned.sortedByCoord.out.bam.bai"),
   params:
     out_put = "{projects}/star/alignments/",
     job_name = "{project.star}",
     memory = "select[mem>80] rusage[mem=80]",
   log:
     "{projects}/star/log/alignment.txt"
-  threads: 16
+  threads: 12
   shell:
     """
     module load star
@@ -123,17 +128,34 @@ rule star_align:
       --readFilesIn {input} --readFilesCommand gunzip -c \
       --outSAMtype BAM SortedByCoordinate --runMode alignReads \
       --outFileNamePrefix {params.out_put} \
-      --outSAMmultNmax 1 --outStd Log
-    
-    samtools index {output}
+      --outSAMmultNmax 1 --outStd Log \
+      --outSAMunmapped Within
+    samtools index {output.bam}
     module unload star
+    """
+
+rule combine_fastqs:
+  input:
+    R2 = expand('{projects}/fastq/modified/renamed_{ids}_R2_001_trimmed.fastq.gz',
+      projects=PROJECTS, ids=IDS)
+  output:
+    R2 =
+    protected('{projects}/fastq/modified/combined_R2_trimmed.fastq.gz'),
+  params:
+    job_name = '{projects}.combinefq',
+    memory =  "select[mem>8] rusage[mem=8] span[hosts=1]"
+  log:
+    '{projects}/fastq/log/combine_ids.txt'
+  shell:
+    """
+    cat {input.R2} > {output.R2}
     """
 
 rule cutadapt:
   input:
-    '{projects}/fastq/modified/combined_R2_001.fastq.gz',
+    '{projects}/fastq/modified/renamed_{ids}_R2_001.fastq.gz'
   output:
-    "{projects}/fastq/modified/combined_R2_trimmed.fastq.gz"
+    temp('{projects}/fastq/modified/renamed_{ids}_R2_001_trimmed.fastq.gz')
   params:
     job_name = '{projects}_trimming',
     memory =  "select[mem>4] rusage[mem=4] "
@@ -142,32 +164,13 @@ rule cutadapt:
   shell:
     "cutadapt -a 'A{{100}}' -m 20 -q 10 -o {output} {input} > {log}"
 
-rule combine_fastqs:
-  input:
-    R1 = expand('{projects}/fastq/original/{ids}_R1_001.fastq.gz',
-      projects=PROJECTS, ids=IDS),
-    R2 = expand('{projects}/fastq/modified/renamed_{ids}_R2_001.fastq.gz',
-      projects=PROJECTS, ids=IDS)
-  output:
-    R1 = '{projects}/fastq/modified/combined_R1_001.fastq.gz',
-    R2 = '{projects}/fastq/modified/combined_R2_001.fastq.gz',
-  params:
-    job_name = '{projects}.combinefq',
-    memory =  "select[mem>8] rusage[mem=8] span[hosts=1]"
-  log:
-    '{projects}/fastq/log/combine_ids.txt'
-  shell:
-    """
-    cat {input.R1} > {output.R1}
-    cat {input.R2} > {output.R2}
-    """
 
 rule append_r1_seq_to_R2:
   input:
     R1 = '{projects}/fastq/original/{ids}_R1_001.fastq.gz',
     R2 = '{projects}/fastq/original/{ids}_R2_001.fastq.gz',
   output:
-    '{projects}/fastq/modified/renamed_{ids}_R2_001.fastq.gz'
+    temp('{projects}/fastq/modified/renamed_{ids}_R2_001.fastq.gz')
   params:
     job_name = "{projects}.renamefq",
     memory = "select[mem>8] rusage[mem=8] span[hosts=1]"
@@ -180,6 +183,7 @@ rule append_r1_seq_to_R2:
       | gzip \
       > {output}
     """
+
 rule extract_barcode_ids:
   input:
     '{projects}/fastq/original/' + BCS + '.txt'
@@ -204,7 +208,7 @@ rule fastqc:
     '{projects}/fastq/original/fastqc/{ids}_R1_001_fastqc.zip',
     '{projects}/fastq/original/fastqc/{ids}_R2_001_fastqc.zip'
   params:
-    out_dir = '{projects}/fastq/original/fastqc/',
+    out_dir = '{wildcards.projects}/fastq/original/fastqc/',
     job_name = '{projects}.fastqc',
     memory =  "select[mem>80] rusage[mem=80] span[hosts=1]"
   log:

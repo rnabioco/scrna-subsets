@@ -1,10 +1,12 @@
+shell.executable("/bin/bash")
+shell.prefix("source ~/.bash_profile; ")
 import glob
 import os
 
 ''' rules to unzip and demultiplex fastqs into per cell fastq '''
 
 
-configfile: "config_biotin_libs.yaml"
+configfile: "config_phospho_libs.yaml"
   
 PROJECTS = config["PROJECTS"]
 
@@ -19,9 +21,8 @@ BIN = "../bin"
 
 rule all:
   input: 
-    expand('{projects}/fastq/original/fqsplit_check.done',
-    projects=PROJECTS),
-    expand('{projects}/fastq/original/fqsplit.done', projects=PROJECTS),
+    expand('{projects}/fastq/original/fqsplit_check.done', projects=PROJECTS),
+#    expand('{projects}/fastq/original/fqsplit.done', projects=PROJECTS),
     expand('{projects}/fastq/original/{sample}_barcode_keys.txt', sample=SAMPLE, projects=PROJECTS),
     expand('{projects}/fastq/demultiplexed/R1.done', projects=PROJECTS),
     expand('{projects}/fastq/original/fastqc/{sample}_R1_001_fastqc.zip', sample=SAMPLE,
@@ -102,7 +103,11 @@ rule extract_barcode_ids:
     job_name = 'extract_barcode.{sample}',
     memory =  "select[mem>4] rusage[mem=4] span[hosts=1]"
   shell:
-    "Rscript {BIN}/format_barcodes.R {input} {output}"
+    """
+    module load gcc
+    Rscript {BIN}/format_barcodes.R {input} {output}
+    module unload gcc
+    """
 
 rule fastqc:
   input:

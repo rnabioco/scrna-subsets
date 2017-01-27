@@ -4,7 +4,7 @@ shell.prefix("source ~/.bash_profile; ")
 import glob
 import os
 
-configfile: "config_biotin.yaml"
+configfile: "config_original.yaml"
   
 PROJECTS = config["PROJECTS"]
 IDS = config["IDS"]
@@ -23,10 +23,40 @@ rule all:
     expand('{projects}/cell_bams/start_pipeline_two.txt',
     projects=PROJECTS),
     expand("{projects}/cell_bams/{cell}_sorted_dedup.bam",
-    cell=CELL,projects=PROJECTS) ,
+    cell=CELL, projects=PROJECTS),
     expand("{projects}/feature_counts/{cell}_{dedup}.tsv",
-    projects=PROJECTS, cell=CELL, dedup = ['sorted', 'sorted_dedup'])
+    projects=PROJECTS, cell=CELL, dedup = ['sorted', 'sorted_dedup']),
+    expand("{projects}/star/bc_counts/{alignment_cat}_bcs.txt",
+    projects=PROJECTS, alignment_cat=['aligned', 'unaligned', 'all']),
+
+rule get_bc_counts:
+  input:
+    "{projects}/star/alignments/Aligned_bc_umi.bam"
+  output:
+    all_bcs = "{projects}/star/bc_counts/all_bcs.txt",
+    aligned = "{projects}/star/bc_counts/aligned_bcs.txt",
+    unaligned = "{projects}/star/bc_counts/unaligned_bcs.txt",
+  params:
+    tmp_bam = "{projects}/star/bc_counts/tmp.bam",
+    job_name = "{projects}.bcfreqs",
+    memory = "select[mem>8] rusage[mem=8]",
+  message:
+    "extract barcode frequency tables"
+  shell:
+    """
+    module load gcc
+    {BIN}/count_bcs {input} > {output.all_bcs}
     
+    samtools view -bf 4  {input} > {params.tmp_bam}
+
+    {BIN}/count_bcs {params.tmp_bam} > {output.unaligned}
+    
+    samtools view -bF 4 {input} > {params.tmp_bam}
+
+    {BIN}/count_bcs {input} > {output.aligned}
+    rm {params.tmp_bam}
+    module unload gcc
+    """
 rule featureCount:
   input:
     "{projects}/cell_bams/{cell}_{dedup}.bam"

@@ -144,7 +144,6 @@ int main(int argc, char *argv[])
         auto hd = hamming_distance(cbc, bc_seq.first) ;
         if (hd == min_hamming) {
           bc = bc_seq.second ;
-          std::cout << cbc << " " << bc_seq.first << std::endl ;
           }
         }
       if (bc.empty()){

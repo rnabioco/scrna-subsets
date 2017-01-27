@@ -2,11 +2,9 @@ CC = g++
 CFLAGS = -ggdb -Wall -O2 -std=c++0x 
 LIBS = -lbz2 -lz -lm -lpthread
 
-barcode_tag_bam: barcode_tag_bam.cpp
+
+all: barcode_tag_bam append_read_name count_bcs
+
+.cpp:
 	$(CC) $(CFLAGS) -Ihtslib -o $@ $< $(LIBS) htslib/libhts.a
 
-append_read_name: append_read_name.cpp
-	$(CC) $(CFLAGS) -o $@ $< $(LIBS)
-
-dplex_illumina: dplex_illumina.cpp
-	$(CC) $(CFLAGS) -o $@ $< $(LIBS)
