@@ -6,8 +6,7 @@
 
 set -o nounset -o pipefail -o errexit -x
 
-
-args=' -q rna -o {log}.out -e {log}.err -J {params.job_name} -R "{params.memory} " -n {threads} '
+args=' -q rna -o {log}.out -e {log}.err -J {params.job_name} -R "{params.memory} " -R "select[hname!=compute11] " -n {threads} '
 
 snakemake --drmaa "$args" --snakefile Snakefile --jobs 20 \
-  --latency-wait 300 --rerun-incomplete  --configfile config_phospho_libs.yaml
+  --latency-wait 300 --rerun-incomplete  --configfile config_original.yaml

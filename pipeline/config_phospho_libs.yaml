@@ -1,0 +1,23 @@
+# config for scRNA-SEQ snakemake pipeline #
+# setup for human datasets #
+ 
+PROJECTS: 
+  '../data/phosphorothioate'
+
+GENOME_FA:
+  "../../shared_dbases/genomes/human_mouse_mix/human_mouse_gencode_hm38_renamed.fa"
+
+STAR_IDX:
+  "../../shared_dbases/star/renamed_GRChm38_full/"
+
+TRANSCRIPTS:
+  "../../shared_dbases/annotation/human_mouse_mix/human_mouse_gencode_vm11_v25_renamed.gtf"
+
+TRANSCRIPTS_BED:
+  "../../shared_dbases/annotation/human_mouse_mix/human_mouse_gencode_vm11_v25_renamed.bed"
+
+IDS:
+  - PoolJH76_AGGCAGAA_L001
+
+BCS:
+  "well_data"
