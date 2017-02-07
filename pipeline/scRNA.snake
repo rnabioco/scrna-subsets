@@ -6,8 +6,7 @@ import os
 
 ''' rules to unzip and demultiplex fastqs into per cell fastq '''
 
-
-configfile: "config_original.yaml"
+configfile: "config_all.yaml"
   
 PROJECTS = config["PROJECTS"]
 IDS = config["IDS"]
@@ -18,73 +17,78 @@ BIN = "../bin"
 STAR_IDX_OUT = STAR_IDX + "Genome"
 TRANSCRIPTS = config["TRANSCRIPTS"]
 TRANSCRIPTS_BED = config["TRANSCRIPTS_BED"]
-
+print(
+    expand('{projects}/fastq/original/fastqc/{ids}_R1_001_fastqc.zip',
+    zip, ids=IDS, projects=PROJECTS))
 rule all:
   input: 
+    {STAR_IDX_OUT},
     expand('{projects}/fastq/original/' + BCS + '_barcode_keys.txt',
     projects=PROJECTS),
-    expand('{projects}/fastq/original/fastqc/{ids}_R1_001_fastqc.zip',ids=IDS,
-    projects=PROJECTS),
-    expand('{projects}/fastq/original/fastqc/{ids}_R2_001_fastqc.zip',ids=IDS,
-    projects=PROJECTS),
-    #expand('{projects}/fastq/modified/renamed_{ids}_R2_001.fastq.gz',ids=IDS,
-    #projects=PROJECTS),
-    #expand('{projects}/fastq/modified/renamed_{ids}_R2_001_trimmed.fastq.gz',
-    #projects=PROJECTS, ids=IDS),
+    expand('{projects}/fastq/original/fastqc/{ids}_R1_001_fastqc.zip',
+    zip, ids=IDS, projects=PROJECTS),
+    expand('{projects}/fastq/original/fastqc/{ids}_R2_001_fastqc.zip',
+    zip, ids=IDS, projects=PROJECTS),
     expand('{projects}/fastq/modified/combined_R2_trimmed.fastq.gz',
     projects=PROJECTS),
-    #expand("{projects}/star/alignments/Aligned.sortedByCoord.out.bam",
-    #projects=PROJECTS),
-    {STAR_IDX_OUT},
-    #expand("{projects}/star/alignments/Aligned_bc.bam",
-    #projects=PROJECTS),
-    #expand("{projects}/star/alignments/Aligned.sortedByCoord.out.bam.bai",
-    #projects=PROJECTS),
-    expand("{projects}/star/alignments/Aligned_bc_umi.bam",
+    expand("{projects}/star/alignments/Aligned_bc_exons.bam",
     projects=PROJECTS),
-    expand("{projects}/cell_bams/splitting_complete.txt",
-    projects=PROJECTS),
+    #expand("{projects}/dgematrix/{projects}_dge_matrix.txt",
+    #projects=PROJECTS),
 
+#rule get_digital_expression_matrix:
+#  input:
+#    bam = "{projects}/star/alignments/sample_{samples}/Aligned_bc_ec_exons.bam",
+#    bai = "{projects}/star/alignments/sample_{samples}/Aligned_bc_ec_exons.bam.bai",
+#  output:
+#    txt = "{projects}/dgematrix/sample_{samples}_dge_matrix.txt",
+#    summary = "{projects}/dgematrix/sample_{samples}_summary.txt",
+#  params:
+#    job_name = "{project.dgematrix}",
+#    memory = "select[mem>16] rusage[mem=16]",
+#  log:
+#    "{projects}/dgematrix/logs/sample_{samples}.txt",
+#  shell:
+#    """
+#    {BIN}/Drop-seq_tools-1.12/DigitalExpression \
+#      I={input.bam} \
+#      SUMMARY={output.summary} \
+#      O={output.txt} \
+#      CELL_BARCODE_TAG="CN" \
+#      MOLECULAR_BARCODE_TAG="BX" \
+#      GENE_EXON_TAG="GE" \
+#      STRAND_TAG="GS" \
+#      EDIT_DISTANCE=1 \
+#      READ_MQ=10\
+#      NUM_CORE_BARCODES=10000 \
+#      USE_STRAND_INFO=true
+#    """
 
-rule split_bam_into_cells:
+rule tag_exons:
   input:
-    bam = "{projects}/star/alignments/Aligned_bc_umi.bam",
-    bai = "{projects}/star/alignments/Aligned_bc_umi.bam.bai",
+    "{projects}/star/alignments/Aligned_bc.bam",
   output:
-    "{projects}/cell_bams/splitting_complete.txt"
+    bam =
+    protected("{projects}/star/alignments/Aligned_bc_exons.bam"),
+    bai =
+    protected("{projects}/star/alignments/Aligned_bc_exons.bam.bai"),
   params:
-    outpre = "{projects}/cell_bams/Aligned_bc_umi",
-    job_name = "{projects}.split_bam",
-    memory = "select[mem>80] rusage[mem=80]",
+    job_name = "{project.tagexons}",
+    memory = "select[mem>16] rusage[mem=16]",
   log:
-    "{projects}/star/log/tag_umi.txt"
+    "{projects}/star/log/gene_overlap.txt"
   shell:
     """
-    module load bamtools
-    bamtools split -in {input.bam} -tagPrefix "" -tag "CN" \
-      -stub {params.outpre} 
-    echo "bam_split_complete" > {output}
-    module unload bamtools
-    """
+    {BIN}/Drop-seq_tools-1.12/TagReadWithGeneExon \
+      I={input} \
+      O={output.bam} \
+      TAG="GE" \
+      STRAND_TAG="GS" \
+      ANNOTATIONS_FILE={TRANSCRIPTS} \
+      USE_STRAND_INFO="true" \
+      ALLOW_MULTI_GENE_READS="false"
 
-rule append_umi_to_read_name:
-  input:
-    bam = "{projects}/star/alignments/Aligned_bc.bam",
-    bai = "{projects}/star/alignments/Aligned_bc.bam.bai",
-  output:
-    bam = protected("{projects}/star/alignments/Aligned_bc_umi.bam"),
-    bai = protected("{projects}/star/alignments/Aligned_bc_umi.bam.bai"),
-  params:
-    job_name = "{project.tagumi}",
-    memory = "select[mem>80] rusage[mem=80]",
-  log:
-    "{projects}/star/log/tag_umi.txt"
-  shell:
-    """
-    module load gcc
-    ~/src/bxtools/src/bxtools relabel {input.bam} > {output.bam}
     samtools index {output.bam}
-    module unload gcc
     """
 
 rule barcode_bam:
@@ -92,8 +96,8 @@ rule barcode_bam:
     bam = "{projects}/star/alignments/Aligned.sortedByCoord.out.bam",
     bcs = "{projects}/fastq/original/" + BCS + "_barcode_keys.txt",
   output:
-    bam = temp("{projects}/star/alignments/Aligned_bc.bam"),
-    bai = temp("{projects}/star/alignments/Aligned_bc.bam.bai"),
+    bam = "{projects}/star/alignments/Aligned_bc.bam",
+    bai = "{projects}/star/alignments/Aligned_bc.bam.bai",
   params:
     job_name = "{project.tagbc}",
     memory = "select[mem>80] rusage[mem=80]",
@@ -208,7 +212,7 @@ rule fastqc:
     '{projects}/fastq/original/fastqc/{ids}_R1_001_fastqc.zip',
     '{projects}/fastq/original/fastqc/{ids}_R2_001_fastqc.zip'
   params:
-    out_dir = '{wildcards.projects}/fastq/original/fastqc/',
+    out_dir = '{projects}/fastq/original/fastqc/',
     job_name = '{projects}.fastqc',
     memory =  "select[mem>80] rusage[mem=80] span[hosts=1]"
   log:
