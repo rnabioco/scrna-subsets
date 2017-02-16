@@ -6,10 +6,12 @@ logs/*
 pipeline/.snakemake/*
 *.swp
 *.pyc
-results/*
 .err
 .out
 *.o
 *barcode_tag_bam
 *count_bcs
 logs/
+*.pdf
+*.html
+results/*/*.txt

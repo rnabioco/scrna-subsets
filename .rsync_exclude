@@ -1,0 +1,14 @@
+*.fastq
+*.gz
+*.fasta
+*.fa
+*.bam
+*.bai
+*.h5
+*.json
+*log*
+*Cell*/*.bam
+*Cell*/*.bai
+*.cxb
+*unmatched*/
+*.snakemake/

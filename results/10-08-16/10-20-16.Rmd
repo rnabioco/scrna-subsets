@@ -1,0 +1,31 @@
+---
+title: "Cycle_diversity"
+output: html_document
+---
+
+```{r cars}
+library(ggplot2)
+seqs <- tibble::tribble(
+~barcode,
+"AACGAACTCGT",
+"AAGACGCGACT",
+"ACGAATACGCA",
+"GCTTGGTCCAA",
+"CGACGTCCGTT",
+"CGGATTGCTGA",
+"CTTACCAATTA",
+"CCTCTGATACT",
+"TTGGTAGCTGA",
+"TTGGAGGCGCG"
+)
+
+bases <- purrr::map(seqs, ~ str_split(.x, ""))
+bases <- purrr::dmap(bases, unlist) %>% mutate(cycle = rep(1:11, 10))
+
+ggplot(bases, aes(cycle)) +
+  geom_bar(aes(fill = barcode))
+ggsave("cycle_diversity.pdf")
+```
+
+
+",

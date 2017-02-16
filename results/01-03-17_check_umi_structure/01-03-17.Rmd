@@ -1,0 +1,140 @@
+---
+title: "check umi structures"
+author: "Kent Riemondy RBI"
+date: "January 3, 2017"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: false
+    theme: cosmo
+    highlight: tango
+    fig_caption: true
+    code_folding: hide
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(cache = TRUE)
+
+```
+
+```{r, message=F, warning=F, echo=F}
+library(readr)
+library(tidyr)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(cowplot)
+library(RColorBrewer)
+library(scRNA)
+library(ggplot2)
+library(purrr)
+library(ggrepel)
+```
+
+# Assess read 1 organization in subsampled and original libraries
+  I will determine if read 1 of the subsampled libraries has a similar organization to read 1 in the original wafergen library. It is possible that the subsampling protocol may result in spurious amplification of non-barcode templates (such as priming to the UMI or cDNA sequence). If this happens then one would predict that read would no longer have the original structure, which is as follows:  
+  
+  Well-Barcode(11 bases) - UMI (10 bases) - Poly(T) (5 bases)  
+  
+  I wrote a simple python [script](check_umi_structure.py) to check whether the read 1 reads end in a stretch of 5 Ts. The output is the counts of correct versus incorrect reads.  
+```{r load_data}
+
+selected_cells_orig <- c(
+  "Cell_4Bone_63_70",
+  "Cell_4Bone_27_61",
+  "Cell_4Bone_34_48",
+  "Cell_1Tumor_0_55",
+  "Cell_1Tumor_7_50",
+  "Cell_4Bone_30_23",
+  "Cell_4Bone_61_22",
+  "Cell_4Bone_66_9",
+  "Cell_3Brain_47_38",
+  "Cell_3Brain_14_46"
+)
+
+selected_cells_biotin <- c(
+  "Cell_4Bone_63_70",
+  "Cell_4Bone_27_61",
+  "Cell_4Bone_34_48",
+  "Cell_1Tumor_0_55",
+  "Cell_1Tumor_7_50",
+  "Cell_3Brain_47_38",
+  "Cell_3Brain_14_46",
+  "Cell_4Bone_28_54",
+  "Cell_4Bone_26_20",
+  "Cell_4Bone_60_43"
+)
+
+
+get_data <- function(in_dir, pattern, .lib_type){
+  files <- list.files(path = in_dir,
+                      pattern = pattern,
+                      recursive = T,
+                      full.names = T)
+  dat <-  map(files,  ~read_tsv(.x, col_names = F))  
+  .names <- basename(files)
+  .names <- str_replace(.names, "_stats.txt", "")
+  names(dat) <- .names
+  dat <-dplyr::bind_rows(dat, .id = "cell")
+  colnames(dat) <- c("cell", "read_type", "count")
+  dat <- mutate_(dat, library_type = ~.lib_type)
+  dat
+  }
+
+in_dir <- "../../data/biotinylated_libs/umis/structure_stats/"
+pattern <- "_stats.txt$"
+.lib_type <- "biotinylated"
+bio_dat <- get_data(in_dir, pattern, .lib_type)
+bio_dat <- mutate(bio_dat, 
+                  selected_cell = ifelse(cell %in% selected_cells_biotin,
+                                         "subsampled",
+                                         "not_subsampled"))
+
+in_dir <- "../../data/derivative_libs/umis/structure_stats/"
+pattern <- "_stats.txt$"
+.lib_type <- "not-biotinylated"
+nonbio_dat <- get_data(in_dir, pattern, .lib_type)
+nonbio_dat <- mutate(nonbio_dat, 
+                  selected_cell = ifelse(cell %in% selected_cells_orig,
+                                         "subsampled",
+                                         "not_subsampled"))
+
+in_dir <- "../../../scRNA/data/Project_Bentley_oldchem/umis/structure_stats/"
+pattern <- "_stats.txt$"
+.lib_type <- "original"
+orig_dat <- get_data(in_dir, pattern, .lib_type)
+orig_dat <- mutate(orig_dat, 
+                  selected_cell = ifelse(cell %in% selected_cells_orig,
+                                         "subsampled",
+                                         "not_subsampled"))
+
+dat <- list(bio_dat, nonbio_dat, orig_dat)
+dat <- bind_rows(dat)
+```
+
+```{r stats}
+dat <- arrange(dat, cell, read_type) %>% 
+    group_by(cell, library_type) %>% 
+    mutate(
+      total = sum(count),
+      proportion = count / total,
+      total = total / 1e6)
+
+correct_dat <- dat %>% filter(read_type == "correct structure")
+cell_names <- correct_dat %>%  filter(selected_cell == "subsampled")
+```
+
+```{r plot}
+ggplot(correct_dat, aes(total, proportion)) + 
+    geom_point(aes(color = selected_cell, alpha = selected_cell)) +
+    facet_grid(~library_type, scales = "free_x") + 
+    xlab("Total number of reads\n(in millions)") +
+    ylab("proportion of read 1 reads\nwith correct structure") +
+    geom_text_repel(data = cell_names, 
+                    aes(x = total, y = proportion, label = cell), size = 2, segment.size = .125)
+```
