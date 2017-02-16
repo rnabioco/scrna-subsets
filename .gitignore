@@ -12,3 +12,4 @@ results/*
 *.o
 *barcode_tag_bam
 *count_bcs
+logs/
