@@ -17,9 +17,7 @@ BIN = "../bin"
 STAR_IDX_OUT = STAR_IDX + "Genome"
 TRANSCRIPTS = config["TRANSCRIPTS"]
 TRANSCRIPTS_BED = config["TRANSCRIPTS_BED"]
-print(
-    expand('{projects}/fastq/original/fastqc/{ids}_R1_001_fastqc.zip',
-    zip, ids=IDS, projects=PROJECTS))
+
 rule all:
   input: 
     {STAR_IDX_OUT},
@@ -33,36 +31,36 @@ rule all:
     projects=PROJECTS),
     expand("{projects}/star/alignments/Aligned_bc_exons.bam",
     projects=PROJECTS),
-    #expand("{projects}/dgematrix/{projects}_dge_matrix.txt",
-    #projects=PROJECTS),
+    expand("{projects}/dgematrix/dge_matrix.txt",
+    projects=PROJECTS),
 
-#rule get_digital_expression_matrix:
-#  input:
-#    bam = "{projects}/star/alignments/sample_{samples}/Aligned_bc_ec_exons.bam",
-#    bai = "{projects}/star/alignments/sample_{samples}/Aligned_bc_ec_exons.bam.bai",
-#  output:
-#    txt = "{projects}/dgematrix/sample_{samples}_dge_matrix.txt",
-#    summary = "{projects}/dgematrix/sample_{samples}_summary.txt",
-#  params:
-#    job_name = "{project.dgematrix}",
-#    memory = "select[mem>16] rusage[mem=16]",
-#  log:
-#    "{projects}/dgematrix/logs/sample_{samples}.txt",
-#  shell:
-#    """
-#    {BIN}/Drop-seq_tools-1.12/DigitalExpression \
-#      I={input.bam} \
-#      SUMMARY={output.summary} \
-#      O={output.txt} \
-#      CELL_BARCODE_TAG="CN" \
-#      MOLECULAR_BARCODE_TAG="BX" \
-#      GENE_EXON_TAG="GE" \
-#      STRAND_TAG="GS" \
-#      EDIT_DISTANCE=1 \
-#      READ_MQ=10\
-#      NUM_CORE_BARCODES=10000 \
-#      USE_STRAND_INFO=true
-#    """
+rule get_digital_expression_matrix:
+  input:
+    bam = "{projects}/star/alignments/Aligned_bc_exons.bam",
+    bai = "{projects}/star/alignments/Aligned_bc_exons.bam.bai",
+  output:
+    txt = "{projects}/dgematrix/dge_matrix.txt",
+    summary = "{projects}/dgematrix/summary.txt",
+  params:
+    job_name = "{project.dgematrix}",
+    memory = "select[mem>16] rusage[mem=16]",
+  log:
+    "{projects}/dgematrix/logs/make_matrix.txt",
+  shell:
+    """
+    {BIN}/Drop-seq_tools-1.12/DigitalExpression \
+      I={input.bam} \
+      SUMMARY={output.summary} \
+      O={output.txt} \
+      CELL_BARCODE_TAG="CN" \
+      MOLECULAR_BARCODE_TAG="BX" \
+      GENE_EXON_TAG="GE" \
+      STRAND_TAG="GS" \
+      EDIT_DISTANCE=1 \
+      READ_MQ=10\
+      NUM_CORE_BARCODES=10000 \
+      USE_STRAND_INFO=true
+    """
 
 rule tag_exons:
   input:
@@ -95,6 +93,7 @@ rule barcode_bam:
   input:
     bam = "{projects}/star/alignments/Aligned.sortedByCoord.out.bam",
     bcs = "{projects}/fastq/original/" + BCS + "_barcode_keys.txt",
+    bai = "{projects}/star/alignments/Aligned.sortedByCoord.out.bam.bai",
   output:
     bam = "{projects}/star/alignments/Aligned_bc.bam",
     bai = "{projects}/star/alignments/Aligned_bc.bam.bai",
