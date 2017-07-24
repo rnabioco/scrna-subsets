@@ -13,5 +13,5 @@ pipeline/.snakemake/*
 *count_bcs
 logs/
 *.pdf
-*.html
 results/*/*.txt
+.Rproj.user
