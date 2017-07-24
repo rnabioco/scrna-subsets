@@ -1,0 +1,673 @@
+---
+title: "Check Umis in Subsampled Libs"
+author: "Kent Riemondy RBI"
+date: "March 22, 2017"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: false
+    theme: cosmo
+    highlight: tango
+    fig_caption: true
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(cache = TRUE)
+
+```
+
+```{r, message=F, warning=F, echo=F}
+library(readr)
+library(purrr)
+library(tidyr)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(cowplot)
+library(RColorBrewer)
+library(scRNA)
+library(ggplot2)
+```
+
+```{r}
+libs <- list("standard", "biotinylated", "phosphorothioate")
+original <- "original"
+
+cells <- list(
+  standard = c(
+    "Cell_4Bone_63_70",
+    "Cell_4Bone_27_61",
+    "Cell_4Bone_34_48",
+    "Cell_1Tumor_0_55",
+    "Cell_1Tumor_7_50",
+    "Cell_4Bone_30_23",
+    "Cell_4Bone_61_22",
+    "Cell_4Bone_66_9",
+    "Cell_3Brain_47_38",
+    "Cell_3Brain_14_46"
+  ),
+  biotin = c(
+    "Cell_4Bone_63_70",
+    "Cell_4Bone_27_61",
+    "Cell_4Bone_34_48",
+    "Cell_1Tumor_0_55",
+    "Cell_1Tumor_7_50",
+    "Cell_3Brain_47_38",
+    "Cell_3Brain_14_46",
+    "Cell_4Bone_28_54",
+    "Cell_4Bone_26_20",
+    "Cell_4Bone_60_43"
+  ),
+  phosphoro = c(
+    "Cell_1Tumor_7_50",
+    "Cell_3Brain_47_38",
+    "Cell_4Bone_28_54",
+    "Cell_4Bone_26_20",
+    "Cell_4Bone_60_43" 
+  )
+)
+
+bc_metadat <- "../../data/original/fastq/original/well_data_barcode_keys.txt"
+bc_metadat <- read_tsv(bc_metadat, col_names = c("cell", "bc"))
+
+get_counts <- function(count_dat){
+  res <- count_dat %>% 
+    group_by(cell) %>% 
+    summarize(total = sum(counts))
+}
+
+tidy_matrix <- function(x){
+  tidyr::gather(x, cell, counts, -GENE)
+}
+
+mats <- map(libs, ~read_tsv(paste0("../../data/", .x , "/dgematrix/dge_matrix.txt")))
+names(mats) <- libs
+mats <- map(mats, ~tidy_matrix(.x))
+summary_dat <- map(mats, ~get_counts(.x))
+summary_dat <- map2(summary_dat, cells, ~mutate(.x, selected_cells = cell %in% .y))
+
+summary_dat <- bind_rows(summary_dat, .id = "library")
+
+og_dat <- map(original, ~read_tsv(paste0("../../data/", .x , "/dgematrix/dge_matrix.txt")))
+names(og_dat) <- original
+og_dat <- map(og_dat, ~tidy_matrix(.x))
+og_dat_summary <- map(og_dat, ~get_counts(.x))
+#og_dat_summary <- map2(og_dat_summary, cells, ~mutate(.x, selected_cells = cell %in% .y))
+og_dat_summary <- bind_rows(og_dat_summary)
+
+dat_merged <- inner_join(summary_dat, og_dat_summary, by = "cell")
+dat <- dplyr::rename(dat_merged, 
+                            total = total.x,
+                            original_total = total.y)
+
+dat <- dat %>%  filter(cell != "Cell_unmatched")
+
+dat <- group_by(dat, library) %>% 
+  mutate(lib_total = sum(total),
+         lib_orig_total = sum(original_total),
+         norm_total = 1e6 * (total / lib_total),
+         norm_original_total = 1e6 * (original_total / lib_orig_total)) %>% 
+  select(-lib_total, -lib_orig_total) %>% 
+  ungroup()
+
+## log2 proportion
+dat <- mutate(dat, 
+              proportion = log2(total / original_total),
+              norm_proportion = log2(norm_total / norm_original_total))
+
+dat <- mutate(dat, 
+              selected_cells = factor(selected_cells, 
+                                      levels = c("TRUE", "FALSE"),
+                                      labels = c("Selected for\nreamplification",
+                                                 "Not Selected for\nreamplification"
+                                               )),
+              library = factor(library,
+                               levels = libs))
+
+```
+
+```{r}
+
+color_palette = c("#1F78B4", "#bdbdbd")
+
+global_plot_theme = theme(legend.title = element_blank(),
+        legend.position = "top",
+        legend.text = element_text(size = 12),
+        strip.text = element_text(size = 10))
+
+```
+
+```{r plot_raw_reads_counts}
+
+ggplot(dat, aes(original_total / 1e3, total / 1e3, colour = selected_cells)) + 
+  geom_point(size = 0.5) + 
+  geom_abline(slope = 1) +
+  coord_fixed() +
+  facet_wrap(~library, nrow = 1) + 
+  xlab("original library\nUMI count (thousands)") +
+  ylab("subsampled library\nUMI count (thousands)") +
+ # ggtitle("Raw reads associated with each cell barcode") +
+  scale_colour_manual(name = "Cell Selected\nfor reamplification\n",
+                      values = color_palette) +
+  theme_cowplot(font_size = 12, line_size = .5) +
+  global_plot_theme
+ggsave("reads_per_barcode_scatterplot.pdf")
+
+color_palette = c("#1F78B4", "#bdbdbd")
+ggplot(dat, aes(norm_original_total / 1e3, norm_total / 1e3, colour = selected_cells)) + 
+  geom_point(size = 0.5) + 
+  geom_abline(slope = 1) +
+  coord_fixed() +
+  facet_wrap(~library, nrow = 1) + 
+  xlab("original library\nRPM (Thousands)") +
+  ylab("subsampled library\nRPM (Thousands)") +
+  #ggtitle("Normalized Raw reads associated with each cell barcode") +
+  scale_colour_manual(name = "Cell Selected\nfor reamplification\n",
+                      values = color_palette) +
+  theme_cowplot(font_size = 12, line_size = 0.5) +
+  global_plot_theme
+ggsave("reads_per_barcode_scatterplot_normalized.pdf")
+```
+
+
+```{r plot_ratio_reads_counts, fig.width=6, fig.height=5}
+
+ggplot(dat, aes(cell, proportion, colour = selected_cells)) + 
+  geom_point() + 
+  ylab(expression(paste( " Log"[2], " ", frac("subsampled", "original")))) +
+  scale_colour_manual(name = "Cells Selected\nfor reamplification\n", values = color_palette) +
+  facet_wrap(~library, nrow = 1) + 
+  theme_cowplot(font_size = 16, line_size = 1) +
+  theme(axis.text.x = element_blank(),
+        legend.title = element_blank(),
+        legend.position = "top",
+        legend.text = element_text(size = 12))
+
+ggsave("reads_ratio_per_barcode_scatterplot.pdf", width = 6.25, height = 5)
+
+ggplot(dat, aes(cell, norm_proportion, colour = selected_cells)) + 
+  geom_point() + 
+  ylab(expression(paste( "Log"[2], " normalized ", frac("subsampled", "original")))) +
+  scale_colour_manual(name = "Cell Selected\nfor reamplification\n", values = color_palette) +
+  facet_wrap(~library, nrow = 1) + 
+  theme_cowplot(font_size = 16, line_size = 1) +
+  theme(axis.text.x = element_blank(),
+        legend.title = element_blank(),
+        legend.position = "top",
+        legend.text = element_text(size = 12))
+ggsave("reads_ratio_per_barcode_scatterplot_normalized.pdf", width = 6.25, height = 5)
+```
+
+
+```{r}
+ggplot(dat, aes(selected_cells, 
+                proportion, fill = selected_cells)) + 
+  geom_boxplot() + 
+  facet_wrap(~library, nrow = 1) +
+  xlab("Selected for Reamplification") +
+  ylab(expression(paste( "Log"[2], " ", frac("subsampled", "original")))) +
+  scale_fill_manual(name = "Cell Selected\nfor reamplification\n",
+                    values = color_palette) +
+  theme_cowplot(font_size = 16, line_size = 0.5) +
+  theme(
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    legend.title = element_blank(),
+    legend.position = "top",
+    legend.text = element_text(size = 12)
+  )
+ggsave("reads_ratio_per_barcode_boxplot.pdf", width = 6, height = 5)
+
+ggplot(dat, aes(selected_cells, 
+                norm_proportion, fill = selected_cells)) + 
+  geom_boxplot() + 
+  facet_wrap(~library, nrow = 1) +
+  xlab("Selected for Reamplification") +
+  ylab(expression(paste( "Log"[2], " normalized ", frac("subsampled", "original")))) +
+  scale_fill_manual(name = "Cell Selected\nfor reamplification\n",
+                    values = color_palette) +
+  theme_cowplot(font_size = 16, line_size = 0.5) +
+  theme(
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    legend.title = element_blank(),
+    legend.position = "top",
+    legend.text = element_text(size = 12)
+  )
+ggsave("reads_ratio_per_barcode_boxplot_normalized.pdf", width = 6, height = 5)
+```
+
+```{r  total_lib_enrichment}
+
+dat<- group_by(dat, library) %>%
+  mutate(total_new = sum(total), 
+         total_old = sum(original_total))
+
+dat_group <- group_by(dat, library, selected_cells) %>% 
+  summarize(total_new = sum(total) / unique(total_new), 
+            total_old = sum(original_total) / unique(total_old)) %>% 
+  gather(lib, percent_lib, -library, -selected_cells ) %>%
+  mutate(lib = factor(lib, levels = c("total_old", "total_new"), 
+                      labels = c("original\nlibrary", "subsampled\nlibrary")))
+
+ggplot(dat_group, aes(lib, percent_lib, fill =  relevel(selected_cells, "Selected for\nreamplification"))) + 
+  geom_bar(stat = "identity") + 
+  ylab("Fraction of\n Reads Assigned") +
+  scale_fill_manual(name = "Cell Selected\nfor reamplification\n",
+                    values = color_palette) +
+  facet_wrap(~library) + 
+  theme_cowplot(font_size = 16, line_size = 1) +
+  theme(
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(angle = 90),
+    legend.title = element_blank(),
+    legend.position = "top",
+    legend.text = element_text(size = 16)
+  )
+ggsave("proportion_per_barcode_barplot.pdf", width = 7, height = 7)
+
+dat_group %>% rename(Method = library) %>% 
+  summarize(
+    `Targeted Library Fold-Enrichment` = (nth(percent_lib, 1) / nth(percent_lib, 3))) %>% 
+  knitr::kable()
+```
+
+
+## mouse vs. human
+
+```{r}
+get_reads_count <- function(gene_dat, cells, libs){
+  gene_dat <- map(gene_dat, ~colSums(.x) ) 
+  gene_dat <- map(gene_dat, ~data_frame(cell = names(.x), 
+                                      total = .x))
+  gene_dat <- map2(gene_dat, cells, 
+                          ~mutate(.x, selected_cells = cell %in% .y))
+  names(gene_dat) <- libs
+  gene_dat
+}
+
+
+bind_data_calc_read_fc <- function(new_dat, old_dat, libs){
+  res <- inner_join(new_dat, old_dat, by = "cell")
+  #### remove total and unmatched counts
+  res <- res %>% dplyr::filter(!grepl("unmatched|total", cell))
+  ## log2 proportion
+  res <- group_by(res, library) %>% 
+    mutate(lib_total = sum(total),
+         lib_orig_total = sum(original_total),
+         norm_total = 1e6 * (total / lib_total),
+         norm_original_total = 1e6 * (original_total / lib_orig_total)) %>% 
+    select(-lib_total, -lib_orig_total) %>% 
+    ungroup()
+  ## log2 proportion
+  res <- mutate(res, 
+              proportion = log2(total / original_total),
+              norm_proportion = log2(norm_total / norm_original_total))
+  
+  res <- mutate(res, 
+                selected_cells = factor(selected_cells, 
+                                      levels = c("TRUE", "FALSE"),
+                                      labels = c("Selected for\nreamplification",
+                                                 "Not Selected for\nreamplification")),
+                library = factor(library,
+                               levels = libs))
+  res
+}
+
+get_read_summary <- function(new_dat, old_dat, libs, original) {
+  sub_sampled_reads <- get_reads_count(new_dat, cells, libs)
+  sub_sampled_reads <-  bind_rows(sub_sampled_reads, .id = "library")
+  og_sub_sampled_reads <- get_reads_count(list(old_dat), cells, list(original))
+  og_sub_sampled_reads <- rename(og_sub_sampled_reads[[1]], original_total = total) %>% 
+  select(-selected_cells)
+  res <- bind_data_calc_read_fc(sub_sampled_reads, og_sub_sampled_reads, libs)
+  res
+}
+
+
+gene_dat <- map(libs, ~read.table(paste0("../../data/", .x , "/dgematrix/dge_matrix.txt"), 
+                              row.names = 1, header = T))
+names(gene_dat) <- libs
+og_gene_dat <- read.table("../../data/original/dgematrix/dge_matrix.txt", 
+                              row.names = 1, header = T)
+
+
+human_read_dat <- map(gene_dat, ~.x[grepl("^hg38::", rownames(.x)), ])
+og_human_read_dat <- og_gene_dat[grepl("^hg38::", rownames(og_gene_dat)), ]
+
+mouse_read_dat <- map(gene_dat, ~.x[grepl("^mm38::", rownames(.x)), ])
+og_mouse_read_dat <- og_gene_dat[grepl("^mm38::", rownames(og_gene_dat)), ]
+
+sub_sampled_reads_human <- get_read_summary(human_read_dat, og_human_read_dat, libs, original)
+sub_sampled_reads_mouse <- get_read_summary(mouse_read_dat, og_mouse_read_dat, libs, original)
+
+combined_dat <- inner_join(sub_sampled_reads_human, sub_sampled_reads_mouse, 
+                by = c("cell", "selected_cells", "library")) %>% 
+  select(library, cell, selected_cells, total.x, total.y, original_total.x, original_total.y) %>% 
+  rename(total_human = total.x,
+         total_mouse = total.y,
+         original_total_human = original_total.x,
+         original_total_mouse = original_total.y) %>% 
+  mutate(purity = total_human / (total_mouse + total_human),
+         original_purity = original_total_human / (original_total_human + original_total_mouse),
+         `% human reads > 90%` = purity > .90)
+
+subsampled_cells <- combined_dat %>%  
+  filter(selected_cells == "Selected for\nreamplification") %>% 
+  select(cell) %>% unique() %>%  unlist()
+
+
+og_dat_to_add <- combined_dat %>% 
+  select(cell, selected_cells, original_total_human, original_total_mouse) %>% 
+  mutate(total_human = original_total_human, 
+         total_mouse = original_total_mouse, 
+         selected_cells = ifelse(cell %in% subsampled_cells, "Selected for\nreamplification", "Not Selected for\nreamplification"), 
+         purity = total_human / (total_mouse + total_human),
+         `% human reads > 90%` = purity > .90,
+         library = "original") %>% 
+  select(library, cell, selected_cells, total_human, total_mouse, original_total_human, original_total_mouse, purity, `% human reads > 90%`) %>% 
+  unique() #remove the duplicates 
+combined_dat <- bind_rows(combined_dat, og_dat_to_add)
+
+combined_dat <- mutate(combined_dat,
+                       library = factor(library,
+                                        levels = c("original", libs)))
+
+```
+
+
+
+
+Here are the number of mapped reads compared:
+
+```{r plot_mapped_reads_counts}
+ggplot(combined_dat, aes(total_human / 1e6, total_mouse / 1e6, colour = selected_cells)) +
+  geom_point(size = 0.5) + 
+  coord_fixed() + 
+  facet_wrap(~library, nrow = 2, scales = "free") + 
+  xlab("Human reads (Millions)") +
+  ylab("Mouse reads (Millions)") +
+  scale_colour_manual(name = "Cell Selected\nfor reamplification\n",
+                      values = color_palette) +
+  theme_cowplot(font_size = 16, line_size = 1) +
+  theme(legend.title = element_blank(),
+        legend.position = "top",
+        legend.text = element_text(size = 12))
+ggsave("mapped_reads_per_barcode_scatterplot__human_mouse.pdf", width = 7, height = 7)
+
+
+ggplot(sub_sampled_reads_human, aes(norm_original_total / 1e3, norm_total / 1e3, colour = selected_cells)) + 
+  geom_point(size = 0.5) + 
+  geom_abline(slope = 1) +
+  facet_wrap(~library, nrow = 1) + 
+  xlab("original library\nRPM (Thousands)") +
+  ylab("subsampled library\nRPM (Thousands)") +
+  labs(title = "Human UMIs") +
+  scale_colour_manual(name = "Cell Selected\nfor reamplification\n",
+                      values = color_palette) +
+  theme_cowplot(font_size = 12, line_size = 0.5) +
+  global_plot_theme
+ggsave("mapped_reads_per_barcode_scatterplot_normalized_human.pdf")
+
+ggplot(sub_sampled_reads_mouse, aes(norm_original_total / 1e3, norm_total / 1e3, colour = selected_cells)) + 
+  geom_point(size = 0.5) + 
+  geom_abline(slope = 1) +
+  labs(title = "Mouse UMIs") +
+  facet_wrap(~library, nrow = 1) + 
+  xlab("original library\nRPM (Thousands)") +
+  ylab("subsampled library\nRPM (Thousands)") +
+  scale_colour_manual(name = "Cell Selected\nfor reamplification\n",
+                      values = color_palette) +
+  theme_cowplot(font_size = 12, line_size = 0.5) +
+  global_plot_theme
+ggsave("mapped_reads_per_barcode_scatterplot_normalized_mouse.pdf")
+
+ggplot(sub_sampled_reads_human, aes(cell, norm_proportion, colour = selected_cells)) + 
+  geom_point() + 
+  ylab(expression(paste( "Log"[2], " normalized human ", frac("subsampled", "original")))) +
+  scale_colour_manual(name = "Cell Selected\nfor reamplification\n", values = color_palette) +
+  facet_wrap(~library, nrow = 1) + 
+  theme_cowplot(font_size = 16, line_size = 1) +
+  theme(
+    axis.text.x = element_blank(),
+    legend.title = element_blank(),
+    legend.position = "top",
+    legend.text = element_text(size = 16)
+  )
+ggsave("mapped_reads_ratio_per_barcode_scatterplot_normalized_human.pdf", width = 7, height = 7)
+
+ggplot(sub_sampled_reads_mouse, aes(cell, norm_proportion, colour = selected_cells)) + 
+  geom_point() + 
+  ylab(expression(paste( "Log"[2], " normalized mouse ", frac("subsampled", "original")))) +
+  ggtitle("Enrichment of cell barcodes in subsampled library") +  
+  scale_colour_manual(name = "Cell Selected\nfor reamplification\n", values = color_palette) +
+  facet_wrap(~library, nrow = 1) + 
+  theme_cowplot(font_size = 16, line_size = 1) +
+  theme(
+    axis.text.x = element_blank(),
+    legend.title = element_blank(),
+    legend.position = "top",
+    legend.text = element_text(size = 16)
+  )
+ggsave("mapped_reads_ratio_per_barcode_scatterplot_normalized_mouse.pdf", width = 7, height = 7)
+```
+
+## genes
+
+```{r genes_detected}
+count_detected_genes <- function(gene_dat, .min_reads = 0, cells, libs){
+  gene_dat <- map(gene_dat, ~dmap(.x, ~sum(.x > .min_reads ) ) %>% unlist() )
+  gene_dat <- map(gene_dat, ~data_frame(cell = names(.x), 
+                                      n_genes = .x))
+  gene_dat <- map2(gene_dat, cells, 
+                          ~mutate(.x, selected_cells = cell %in% .y))
+  names(gene_dat) <- libs
+  gene_dat
+}
+
+
+bind_data_calc_fc <- function(new_dat, old_dat){
+  res <- inner_join(new_dat, old_dat, by = "cell")
+  #### remove total and unmatched counts
+  res <- res %>% dplyr::filter(!grepl("unmatched|total", cell))
+  ## log2 proportion
+  res <- mutate(res,  
+                proportion = log2(n_genes / orig_n_genes))
+  
+  res <- mutate(res, 
+                selected_cells = factor(selected_cells, 
+                                      levels = c("TRUE", "FALSE"),
+                                      labels = c("Selected for\nreamplification",
+                                                 "Not Selected for\nreamplification")),
+                library = factor(library,
+                               levels = libs))
+  res
+}
+
+get_gene_summary <- function(new_dat, old_dat, libs, original) {
+  sub_sampled_genes <- count_detected_genes(new_dat, .min_reads = 0, cells, libs)
+  sub_sampled_genes <-  bind_rows(sub_sampled_genes, .id = "library")
+  og_sub_sampled_genes <- count_detected_genes(list(old_dat), .min_reads = 0, cells, list(original))
+  og_sub_sampled_genes <- rename(og_sub_sampled_genes[[1]], orig_n_genes = n_genes) %>% 
+  select(-selected_cells)
+  res <- bind_data_calc_fc(sub_sampled_genes, og_sub_sampled_genes)
+  res
+}
+
+gene_dat <- map(libs, ~read.table(paste0("../../data/", .x , "/dgematrix/dge_matrix.txt"), 
+                              row.names = 1, header = T))
+names(gene_dat) <- libs
+
+og_gene_dat <- read.table("../../data/original/dgematrix/dge_matrix.txt", 
+                              row.names = 1, header = T)
+
+human_gene_dat <- map(gene_dat, ~.x[grepl("^hg38::", rownames(.x)), ])
+og_human_gene_dat <- og_gene_dat[grepl("^hg38::", rownames(og_gene_dat)), ]
+
+mouse_gene_dat <- map(gene_dat, ~.x[grepl("^mm38::", rownames(.x)), ])
+og_mouse_gene_dat <- og_gene_dat[grepl("^mm38::", rownames(og_gene_dat)), ]
+
+sub_sampled_genes_human <- get_gene_summary(human_gene_dat, og_human_gene_dat, libs, original)
+sub_sampled_genes_mouse <- get_gene_summary(mouse_gene_dat, og_mouse_gene_dat, libs, original)
+
+sub_sampled_genes_human %>%  filter(selected_cells == "Selected for\nreamplification") %>%  filter(library == "phosphorothioate") %>% summarize(mean_abs_fold_change_genes = 2^mean(proportion))
+
+sub_sampled_genes_mouse %>%  filter(selected_cells == "Selected for\nreamplification") %>%  filter(library == "phosphorothioate") %>% summarize(mean_abs_fold_change_genes = 2^mean(proportion))
+```
+
+
+```{r plot_gene_counts}
+
+ggplot(sub_sampled_genes_human, aes(orig_n_genes / 1e3, n_genes / 1e3, colour = selected_cells)) + 
+  geom_point(size = 0.5) +
+  coord_fixed() +
+  xlab("human genes detected\n original lib. (K)") +
+  ylab("human genes detected\n subsampled lib. (K)") +
+  scale_colour_manual(values = color_palette) +
+  facet_wrap(~library, nrow = 1) +
+  geom_abline(slope = 1) +
+  coord_equal() +
+  theme_cowplot(font_size = 16, line_size = 0.5) +
+  theme(
+    legend.title = element_blank(),
+    legend.position = "top",
+    legend.text = element_text(size = 12)
+  )
+
+ggsave("genes_per_barcode_scatterplot_human.pdf", width = 6, height = 5)
+
+ggplot(sub_sampled_genes_mouse, aes(orig_n_genes / 1e3, n_genes / 1e3, colour = selected_cells)) + 
+  geom_point(size = 0.5) +
+  coord_fixed() +
+  xlab("mouse genes detected\n original lib. (K)") +
+  ylab("mouse genes detected\n subsampled lib. (K)") +
+  scale_colour_manual(values = color_palette) +
+  facet_wrap(~library, nrow = 1) +
+  geom_abline(slope = 1) +
+  coord_equal() +
+  theme_cowplot(font_size = 16, line_size = 0.5) +
+  theme(
+    legend.title = element_blank(),
+    legend.position = "top",
+    legend.text = element_text(size = 12)
+  )
+
+ggsave("genes_per_barcode_scatterplot_mouse.pdf", width = 6, height = 5)
+
+
+```
+
+
+```{r plot_ratio_gene_counts}
+ggplot(sub_sampled_genes_human, aes(cell, proportion, colour = selected_cells)) + 
+  geom_point() + 
+  ylab(expression(paste("genes ratio ", frac("subsampled library", "original library"), " Log2"))) +
+  ggtitle("Enrichment of human genes in subsampled library") +  
+  facet_wrap(~library, nrow = 1) + 
+  scale_colour_manual(values = color_palette) +
+  theme_cowplot(font_size = 16, line_size = 1) +
+  theme(
+    axis.text.x = element_blank()
+  )
+ggsave("genes_per_barcode_enrichment_human.pdf")
+
+ggplot(sub_sampled_genes_mouse, aes(cell, proportion, colour = selected_cells)) + 
+  geom_point() + 
+  ylab(expression(paste("genes ratio ", frac("subsampled library", "original library"), " Log2"))) +
+  ggtitle("Enrichment of mouse genes in subsampled library") +  
+  facet_wrap(~library, nrow = 1) + 
+  scale_colour_manual(values = color_palette) +
+  theme_cowplot(font_size = 16, line_size = 1) +
+  theme(
+    axis.text.x = element_blank()
+  )
+ggsave("genes_per_barcode_enrichment_mouse.pdf")
+
+ggplot(sub_sampled_genes_human, aes(selected_cells, proportion, colour = selected_cells)) + 
+  geom_boxplot() + 
+  facet_wrap(~library, nrow = 1) +
+  xlab("Selected for Reamplification") +
+  ylab(expression(paste( "Log"[2], " normalized ", frac("subsampled", "original")))) +
+  scale_color_manual(name = "Cell Selected\nfor reamplification\n",
+                    values = color_palette) +
+  theme_cowplot(font_size = 16, line_size = 0.5) +
+  theme(
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    legend.title = element_blank(),
+    legend.position = "top",
+    legend.text = element_text(size = 12)
+  )
+ggsave("genes_ratio_per_barcode_boxplot_human.pdf", width = 6, height = 5)
+
+ggplot(sub_sampled_genes_mouse, aes(selected_cells, proportion, colour = selected_cells)) + 
+  geom_boxplot() + 
+  facet_wrap(~library, nrow = 1) +
+  xlab("Selected for Reamplification") +
+  ylab(expression(paste( "Log"[2], " normalized ", frac("subsampled", "original")))) +
+  scale_color_manual(name = "Cell Selected\nfor reamplification\n",
+                    values = color_palette) +
+  theme_cowplot(font_size = 16, line_size = 0.5) +
+  theme(
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    legend.title = element_blank(),
+    legend.position = "top",
+    legend.text = element_text(size = 12)
+  )
+ggsave("genes_ratio_per_barcode_boxplot_mouse.pdf", width = 6, height = 5)
+```
+
+
+```{r n_genes_per_selected_cell}
+human_resampled <- filter(sub_sampled_genes_human, 
+                          selected_cells == "Selected for\nreamplification") %>% 
+  gather(gene_origin, gene_count, -library, -cell, -selected_cells) %>% 
+  mutate(gene_origin = ifelse(gene_origin == "n_genes", 
+                              "subsampled", "original"))
+
+mouse_resampled <- filter(sub_sampled_genes_mouse, 
+                          selected_cells == "Selected for\nreamplification") %>% 
+  gather(gene_origin, gene_count, -library, -cell, -selected_cells) %>% 
+  mutate(gene_origin = ifelse(gene_origin == "n_genes", 
+                              "subsampled", "original"))
+
+
+ggplot(human_resampled, aes(cell, gene_count, fill = gene_origin)) + 
+  geom_bar(stat = "identity", position = "dodge") +
+  ylab("Human\nGenes Detected") +
+  scale_fill_manual(values = color_palette) +
+  facet_wrap(~library, nrow = 1, scales = "free_x") +
+  theme_cowplot(font_size = 16, line_size = 0.5) +
+  theme(
+    legend.title = element_blank(),
+    legend.position = "top",
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(size = 8, angle = 90),
+    legend.text = element_text(size = 12)
+  )
+
+ggsave("genes_per_cell_barplot_human.pdf", width = 6, height = 5)
+
+
+ggplot(mouse_resampled, aes(cell, gene_count, fill = gene_origin)) + 
+  geom_bar(stat = "identity", position = "dodge") +
+  ylab("Mouse\nGenes Detected") +
+  scale_fill_manual(values = color_palette) +
+  facet_wrap(~library, nrow = 1, scales = "free_x") +
+  theme_cowplot(font_size = 16, line_size = 0.5) +
+  theme(
+    legend.title = element_blank(),
+    legend.position = "top",
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(size = 8, angle = 90),
+    legend.text = element_text(size = 12)
+  )
+
+ggsave("genes_per_cell_barplot_human.pdf", width = 6, height = 5)
+```
