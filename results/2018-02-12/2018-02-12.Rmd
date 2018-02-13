@@ -1,5 +1,7 @@
 ---
-title: "01-19-17_derivative_lib_analysis"
+title: '2018-02-18'
+author: "Kent Riemondy RBI"
+date: "`R Sys.Date()`"
 output:
   html_document:
     toc: true
@@ -9,35 +11,39 @@ output:
     highlight: tango
     fig_caption: true
     code_folding: hide
+    df_print: paged
 ---
+
+## Analyses to do:
+
+1) Clean up basic processing and plots into more readable Rmds
+2) quantify read-level and umi-level subsampling results
+3) examine enriched genes (what are they?)
+4) examine novel umi-diversity (off-by-ones?)
+5) examine cDNA duplication rates
+
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_chunk$set(warning = FALSE)
 knitr::opts_chunk$set(message = FALSE)
 knitr::opts_chunk$set(cache = TRUE)
-
 ```
 
 ```{r, message=F, warning=F, echo=F}
-library(readr)
-library(purrr)
-library(tidyr)
-library(dplyr)
-library(stringr)
-library(ggplot2)
-library(cowplot)
-library(RColorBrewer)
-#library(scRNA)
-library(ggplot2)
+source("../../R/globals.R")
 ```
 
-## Compare raw read counts  
-  First read in barcode counts for the original library, the reamplified library, and the reamplified library with biotinylated primers. 
-  
-```{r barcode_counts}
-libs <- list("standard", "biotinylated", "phosphorothioate")
-original <- "original"
+## Organize single cell libraries
+
+First designate the libraries and the cells that were subsampled. 
+
+```{r cell_ids}
+libs <- list("original",
+             "standard", 
+             "biotinylated", 
+             "phosphorothioate")
+
 
 cells <- list(
   standard = c(
@@ -72,90 +78,237 @@ cells <- list(
     "Cell_4Bone_60_43" 
   )
 )
+```
 
-bc_metadat <- "../../data/original/fastq/original/well_data_barcode_keys.txt"
-bc_metadat <- read_tsv(bc_metadat, col_names = c("cell", "bc"))
+Next read in the well data information from wafergen that contains the cell barcode information. 
 
-read_bc_dat <- function(file){
-  res <- read_tsv(file, col_names = F)
-  res <- mutate(res, 
-                counts = X2, 
-                cell = str_split(X1, "::", simplify = T)[, 1],
-                obs_bc = str_split(X1, "::", simplify = T)[, 2])
-  res <- select(res, -X1, -X2)
-  res
-}
+```{r metadata}
+bc_metadat <- file.path(data_dir, 
+                        "original",
+                        "fastq",
+                        "original",
+                        "well_data.txt")
 
-add_bc_dat <- function(count_dat, bc_dat){
-  inner_join(count_dat, bc_dat, by = "cell")
-}
+bc_metadat <- read_tsv(bc_metadat)
 
-get_counts <- function(count_dat){
-  res <- count_dat %>% 
-    group_by(cell) %>% 
-    summarize(total = sum(counts))
-}
+bc_metadat <- select(bc_metadat,
+                     Row, 
+                     Col, 
+                     Sample,
+                     Barcode)
 
-clean_up_count_data <- function(lib, file, bc_metadat){
-  in_file <- paste0("../../data/", lib, "/star/bc_counts/", file)
-  res <- read_bc_dat(in_file)
-  res <- add_bc_dat(res, bc_metadat)
-  res <- get_counts(res)
-  res
-}
+bc_metadat <- mutate(bc_metadat,
+                     Sample = str_replace_all(Sample, "-", ""),
+                     cell_id = str_c("Cell", Sample, Row, Col, sep = "_"))
+bc_metadat
+```
 
-dat <- map(libs, ~clean_up_count_data(.x, "all_bcs.txt", bc_metadat))
-names(dat) <- libs
-dat <- map2(dat, cells, ~mutate(.x, selected_cells = cell %in% .y))
+Load and organize a table for each library of read counts per cell per gene, and a table of umi counts per cell per gene. 
 
-dat <- bind_rows(dat, .id = "library")
-og_dat <- map(original, ~clean_up_count_data(.x, "all_bcs.txt", bc_metadat))[[1]]
-og_dat <- rename(og_dat, original_total = total)
+```{r read_counts}
 
-dat <- inner_join(dat, og_dat, by = "cell")
+## read in featurecount table with read counts per gene per cell
+read_dat <- map(libs, 
+                ~read_tsv(file.path(data_dir, 
+                          .x,
+                          "featurecounts",
+                          "assigned_read_counts.txt"),
+                          skip = 1))
+names(read_dat) <- libs
 
+## read in umi_tools count table with umi counts per gene per cell
+umi_dat <- map(libs, 
+                ~read_tsv(file.path(data_dir, 
+                          .x,
+                          "dgematrix",
+                          "dge_matrix.txt")))
+names(umi_dat) <- libs
 
-## normalized read counts
-dat <- group_by(dat, library) %>% 
-  mutate(lib_total = sum(total),
-         lib_orig_total = sum(original_total),
-         norm_total = 1e6 * (total / lib_total),
-         norm_original_total = 1e6 * (original_total / lib_orig_total)) %>% 
-  select(-lib_total, -lib_orig_total) %>% 
-  ungroup()
+## format read table to match umi table
+read_dat <- map(read_dat, function(x){
+                       x <- select(x, gene = Geneid, 7:ncol(x))
+                       cols <- colnames(x)
+                       gene_col <- cols[1]
+                       cell_cols <- cols[2:length(cols)]
+                       new_cell_cols <- str_split(cell_cols, ":", simplify = T)
+                       new_cell_cols <- new_cell_cols[, 2]
+                       colnames(x) <- c(gene_col, new_cell_cols)
+                       x
+                     })
 
-## log2 proportion
-dat <- mutate(dat, 
-              proportion = log2(total / original_total),
-              norm_proportion = log2(norm_total / norm_original_total))
+all_cells <- c(list(original = bc_metadat$cell_id), 
+               cells)
 
-dat <- mutate(dat, 
-              selected_cells = factor(selected_cells, 
-                                      levels = c("TRUE", "FALSE"),
-                                      labels = c("Selected for\nreamplification",
-                                                 "Not Selected for\nreamplification"
-                                               )),
-              library = factor(library,
-                               levels = libs))
+cell_obj_mdata <- map(all_cells, 
+                      ~mutate(bc_metadat, 
+                              subsampled = ifelse(cell_id %in% .x,
+                                                  TRUE,
+                                                  FALSE)))
 
 ```
 
-Next, the cells selected for reamplification will be selected.  
+Next organize these tables into simple classes called `subsampled-sets` to keep track of each experiments relavant raw, processed, and meta data. 
 
-```{r}
+```{r s3ify}
+#' simple class to hold info for each experiment
+create_sc_obj <- function(umi_df,
+                          read_df,
+                          cell_mdata_df){
+  x <- list()
+  class(x) <- "subsampled-set"
+  x$umis <- umi_df
+  x$reads <- read_df
+  x$meta_dat <- cell_mdata_df
+  return(x)
+}
 
+sc_objs <- list(umi_dat, read_dat, cell_obj_mdata)
+sc_objs <- pmap(sc_objs, create_sc_obj)
+```
+
+Next perform basic processing. 
+  1) generate separate objects to store sparse matrices of umi and read counts. 
+  2) normalize read and umi count data by total library size (sum of all read or umi counts for all cells in the experiment) and report as Reads per million or UMIs per million. 
+  3) Compute per cell metrics (read and umi counts, sequencing saturation)
+
+```{r store_matrices}
+
+tidy_to_matrix <- function(df){
+   df <- as.data.frame(df)
+   rownames(df) <- df[, 1]
+   df[, 1] <- NULL
+   mat <- as.matrix(df)
+   mat <- as(mat, "sparseMatrix")   
+   return(mat)
+}
+
+#' keep both tidy and matrix objs
+generate_matrices <- function(sc_obj){
+  sc_obj$umi_matrix <- tidy_to_matrix(sc_obj$umis)
+  sc_obj$read_matrix <- tidy_to_matrix(sc_obj$reads)
+  sc_obj
+}
+
+#' normalize by library size (Reads per Million)
+norm_libsize <- function(sc_obj){
+  sc_obj$norm_umi <- 1e6 * sweep(sc_obj$umi_matrix, 2, 
+                                 sum(as.vector(sc_obj$umi_matrix)), "/")
+  sc_obj$norm_reads <- 1e6 * sweep(sc_obj$read_matrix, 2, 
+                                   sum(as.vector(sc_obj$read_matrix)), "/")
+  sc_obj
+}
+
+add_metadata <- function(sc_obj, dat){
+  if (is.vector(dat)){
+    new_colname <- deparse(substitute(dat))
+    df <- data_frame(!!new_colname := dat)
+    df[[new_colname]] <- dat
+    df[["cell_id"]] <- names(dat)
+    sc_obj$meta_dat <- left_join(sc_obj$meta_dat,
+                                 df,
+                                 by = "cell_id")
+    
+  } else if (is.data.frame(dat)) {
+    sc_obj$meta_dat <- left_join(sc_obj$meta_dat,
+                                 dat,
+                                 by = "cell_id")
+  }
+  sc_obj
+}
+
+compute_summaries <- function(sc_obj){
+  ## raw counts
+  total_umis <- colSums(sc_obj$umi_matrix)
+  names(total_umis) <- colnames(sc_obj$umi_matrix)
+  total_reads <- colSums(sc_obj$read_matrix)
+  names(total_reads) <- colnames(sc_obj$read_matrix)
+  
+  ## norm counts
+  norm_total_umis <- colSums(sc_obj$norm_umi)
+  names(norm_total_umis) <- colnames(sc_obj$norm_umi)
+  norm_total_reads <- colSums(sc_obj$norm_reads)
+  names(norm_total_reads) <- colnames(sc_obj$norm_reads)
+    
+  sc_obj <- add_metadata(sc_obj, total_umis)
+  sc_obj <- add_metadata(sc_obj, total_reads)
+  sc_obj <- add_metadata(sc_obj, norm_total_umis)
+  sc_obj <- add_metadata(sc_obj, norm_total_reads)
+  
+  ## compute cDNA duplication rate 
+  sc_obj$meta_dat$cDNA_duplication <- 1 - (sc_obj$meta_dat$total_umis /
+                                             sc_obj$meta_dat$total_reads)
+  
+  sc_obj
+}
+
+sc_objs <- map(sc_objs, generate_matrices)
+sc_objs <- map(sc_objs, norm_libsize)
+sc_objs <- map(sc_objs, compute_summaries)
+```
+
+Compute enrichment of reads/umis over the original library. 
+
+```{r calc_enrichment}
+
+sc_objs <- map(sc_objs,
+    function(sub_dat){
+      og_counts <- select(sc_objs$original$meta_dat,
+                          og_total_reads = total_reads,
+                          og_total_umis = total_umis,
+                          og_norm_total_umis = norm_total_umis,
+                          og_norm_total_reads = norm_total_reads,
+                          og_cDNA_duplication = cDNA_duplication,
+                          cell_id)
+      sub_dat$meta_dat <- left_join(sub_dat$meta_dat,
+                         og_counts, 
+                         by = "cell_id")
+      
+      sub_dat$meta_dat <- mutate(sub_dat$meta_dat,
+                                 read_proportion = log2( total_reads / og_total_reads),
+                                 umi_proportion = log2( total_umis / og_total_umis),
+                                 norm_read_proportion = log2( norm_total_reads /
+                                                                og_norm_total_reads),
+                                 norm_umi_proportion = log2( norm_total_umis /
+                                                               og_norm_total_umis))
+      sub_dat
+    })
+
+```
+
+## plot cDNA duplication rate
+
+```{r cDNA_duplication_rate, fig.cap="Note the high level of sequencing saturation (0 = no-duplication, 1 = all duplicates) in the original library. Also note that the libraries tend to have higher saturatioin rates, after subsampling."}
+sc_metadat <- map(sc_objs, ~.x$meta_dat) %>% 
+  bind_rows(.id = "library") 
+
+ggplot(sc_metadat, aes(total_reads, cDNA_duplication)) +
+  geom_point(aes(color = subsampled)) +
+  labs(x = expression(paste("Read count (log"[10],")")),
+       y = "Sequencing saturation") + 
+  scale_x_log10() +
+  scale_color_viridis(discrete = T) +
+  facet_wrap(~library)
+```
+
+## plot read and umi counts per library
+
+```{r plot_read_and_umi_counts}
 color_palette = c("#1F78B4", "#bdbdbd")
 
-global_plot_theme = theme(legend.title = element_blank(),
+global_plot_theme <- theme(
         legend.position = "top",
-        legend.text = element_text(size = 12),
-        strip.text = element_text(size = 10))
+        legend.text = element_text(size = 10),
+        strip.text = element_text(size = 8))
 
-```
+subsampled_metadat <- filter(sc_metadat,
+                             library != "original") %>% 
+  mutate(library = factor(library, 
+                          levels = c(
+                               "standard",
+                               "biotinylated",
+                               "phosphorothioate")))
 
-```{r plot_raw_reads_counts}
-
-ggplot(dat, aes(original_total / 1e6, total / 1e6, colour = selected_cells)) + 
+unnorm_plt <- ggplot(subsampled_metadat, aes(og_total_reads / 1e6, total_reads / 1e6, colour = subsampled)) + 
   geom_point(size = 0.5) + 
   geom_abline(slope = 1) +
   coord_fixed() +
@@ -164,59 +317,92 @@ ggplot(dat, aes(original_total / 1e6, total / 1e6, colour = selected_cells)) +
   ylab("subsampled library\nreads count (millions)") +
   ylim(c(0, 8)) + 
  # ggtitle("Raw reads associated with each cell barcode") +
-  scale_colour_manual(name = "Cell Selected\nfor reamplification\n",
+  scale_colour_manual(name = "subsampled:",
                       values = color_palette) +
-  theme_cowplot(font_size = 12, line_size = .5) +
+  theme_cowplot(font_size = 10, line_size = .5) +
   global_plot_theme
-ggsave("reads_per_barcode_scatterplot.pdf")
 
-color_palette = c("#1F78B4", "#bdbdbd")
-ggplot(dat, aes(norm_original_total / 1e3, norm_total / 1e3, colour = selected_cells)) + 
+norm_plt <- ggplot(subsampled_metadat, aes(og_norm_total_reads / 1e3, norm_total_reads / 1e3, colour = subsampled)) + 
   geom_point(size = 0.5) + 
-  geom_abline(slope = 1) +
+  geom_abline(slope = 1) + 
   facet_wrap(~library, nrow = 1) + 
   xlab("original library\nRPM (Thousands)") +
   ylab("subsampled library\nRPM (Thousands)") +
-  #ggtitle("Normalized Raw reads associated with each cell barcode") +
-  scale_colour_manual(name = "Cell Selected\nfor reamplification\n",
+  scale_colour_manual(name = "subsampled:",
                       values = color_palette) +
-  theme_cowplot(font_size = 12, line_size = 0.5) +
+  theme_cowplot(font_size = 10, line_size = 0.5) +
+  theme(aspect.ratio = 1) + 
   global_plot_theme
-ggsave("reads_per_barcode_scatterplot_normalized.pdf")
+
+unnorm_umi_plt <- ggplot(subsampled_metadat, aes(og_total_umis / 1e3, total_umis / 1e3, colour = subsampled)) + 
+  geom_point(size = 0.5) + 
+  geom_abline(slope = 1) +
+  coord_fixed() +
+  facet_wrap(~library, nrow = 1) + 
+  xlab("original library\nUMI count (Thousands)") +
+  ylab("subsampled library\nUMI count (Thousands)") +
+  scale_colour_manual(name = "subsampled:",
+                      values = color_palette) +
+  theme_cowplot(font_size = 10, line_size = .5) +
+  global_plot_theme
+
+norm_umi_plt <- ggplot(subsampled_metadat, aes(og_norm_total_umis / 1e3, norm_total_umis / 1e3, colour = subsampled)) + 
+  geom_point(size = 0.5) + 
+  geom_abline(slope = 1) + 
+  facet_wrap(~library, nrow = 1) + 
+  xlab("original library\nUMI normalized RPM (Thousands)") +
+  ylab("subsampled library\nUMIs per Million (Thousands)") +
+  scale_colour_manual(name = "subsampled:",
+                      values = color_palette) +
+  theme_cowplot(font_size = 10, line_size = 0.5) +
+  theme(aspect.ratio = 1) + 
+  global_plot_theme
+
+plt <- plot_grid(unnorm_plt, norm_plt, unnorm_umi_plt, norm_umi_plt, 
+                 labels = "AUTO",
+                 align = 'hv')
+plt
+save_plot("reads_per_barcode_scatterplots.pdf", plt, base_width = 8 )
 ```
 
-
+## Plot enrichment of reads/umis 
 ```{r plot_ratio_reads_counts, fig.width=6, fig.height=5}
 
-ggplot(dat, aes(cell, proportion, colour = selected_cells)) + 
+read <- ggplot(subsampled_metadat, 
+       aes(cell_id, norm_read_proportion, colour = subsampled)) + 
   geom_point() + 
-  ylab(expression(paste( " Log"[2], " ", frac("subsampled", "original")))) +
-  scale_colour_manual(name = "Cells Selected\nfor reamplification\n", values = color_palette) +
+  labs(x = "Cell", 
+       y = expression(paste( " Log"[2], " normalized reads ", frac("subsampled", "original")))) +
+  scale_colour_manual(name = "subsampled:", values = color_palette) +
   facet_wrap(~library, nrow = 1) + 
   theme_cowplot(font_size = 16, line_size = 1) +
   theme(axis.text.x = element_blank(),
-        legend.title = element_blank(),
         legend.position = "top",
         legend.text = element_text(size = 12))
 
-ggsave("reads_ratio_per_barcode_scatterplot.pdf", width = 6.25, height = 5)
-
-ggplot(dat, aes(cell, norm_proportion, colour = selected_cells)) + 
+umi <- ggplot(subsampled_metadat, 
+       aes(cell_id, norm_umi_proportion, colour = subsampled)) + 
   geom_point() + 
-  ylab(expression(paste( "Log"[2], " normalized ", frac("subsampled", "original")))) +
-  scale_colour_manual(name = "Cell Selected\nfor reamplification\n", values = color_palette) +
+  labs(x = "Cell", 
+       y = expression(paste( "Log"[2], " normalized UMIs ", frac("subsampled", "original")))) +
+  scale_colour_manual(name = "subsampled:", values = color_palette) +
   facet_wrap(~library, nrow = 1) + 
   theme_cowplot(font_size = 16, line_size = 1) +
   theme(axis.text.x = element_blank(),
-        legend.title = element_blank(),
         legend.position = "top",
         legend.text = element_text(size = 12))
-ggsave("reads_ratio_per_barcode_scatterplot_normalized.pdf", width = 6.25, height = 5)
+
+plt <- plot_grid(read, umi,
+                 labels = "AUTO",
+                 align = 'hv')
+plt
+
+ggsave("reads_umi_ratio_per_barcode_normalized.pdf", width = 6.25, height = 5)
 ```
 
   
   
-```{r boxplot_ratio_reads_counts}
+```{r per_cell_ratio_reads_counts}
 ggplot(dat, aes(selected_cells, 
                 proportion, fill = selected_cells)) + 
   geom_boxplot() + 
@@ -326,7 +512,7 @@ og_gene_dat <- map(original, ~clean_up_gene_data(.x))[[1]]
 
 ### mapped reads comparison
 ``` {r reload_dat}
-matrices <- dir("count_matrices/", pattern = "[psb]", full.names = T)
+matrices <- dir("../01-19-2017/count_matrices/", pattern = "[psb]", full.names = T)
 gene_dat <- map(matrices, ~read.table(.x)) 
 names(gene_dat) <- basename(matrices)
 #reorder matrix to match libs variable
@@ -334,7 +520,7 @@ names(gene_dat) <- basename(matrices)
 gene_dat <- list(gene_dat$"standard_genematrix.txt", gene_dat$"biotinylated_genematrix.txt", gene_dat$"phosphorothioate_genematrix.txt")
 names(gene_dat) <- libs
 
-og_gene_dat <- read.table("count_matrices/original_genematrix.txt")
+og_gene_dat <- read.table("../01-19-2017/count_matrices/original_genematrix.txt")
 ```
 
 ```{r number_of_mapped_reads}
@@ -682,8 +868,8 @@ library(tidyr)
 library(ggplot2)
 library(ComplexHeatmap)
 library(purrr)
-old_countdat <- read.table("count_matrices/original_genematrix.txt")
-countdat <- read.table("count_matrices/phosphorothioate_genematrix.txt")
+old_countdat <- read.table("../01-19-2017/count_matrices/original_genematrix.txt")
+countdat <- read.table("../01-19-2017/count_matrices/phosphorothioate_genematrix.txt")
 
 countdat$genes <- rownames(countdat)
 old_countdat$genes <- rownames(old_countdat)

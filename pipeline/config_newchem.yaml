@@ -2,7 +2,7 @@
 # setup for mouse-human datasets #
  
 PROJECTS: 
-  '../data/standard'
+  - '../data/newchem'
 
 GENOME_FA:
   "../../shared_dbases/genomes/human_mouse_mix/human_mouse_gencode_hm38_renamed.fa"
@@ -17,7 +17,7 @@ TRANSCRIPTS_BED:
   "../../shared_dbases/annotation/human_mouse_mix/human_mouse_gencode_vm11_v25_renamed.bed"
 
 IDS:
-  - 1_AGGCAGAA_L001
+  - Bentley702_CGTACTAG_L078
 
 BCS:
   "well_data"

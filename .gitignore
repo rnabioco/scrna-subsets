@@ -15,3 +15,4 @@ logs/
 *.pdf
 results/*/*.txt
 .Rproj.user
+.Rhistory

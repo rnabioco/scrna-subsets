@@ -1,5 +1,5 @@
 # config for scRNA-SEQ snakemake pipeline #
-# setup for human datasets #
+# setup for mouse-human datasets #
  
 PROJECTS: 
   - '../data/standard'
