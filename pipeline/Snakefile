@@ -7,33 +7,32 @@ import os
 ''' rules to unzip and demultiplex fastqs into per cell fastq '''
 
 configfile: "config_all.yaml"
-  
+
+DATA = config["DATA"]
 PROJECTS = config["PROJECTS"]
 IDS = config["IDS"]
-BCS = config["BCS"]
 STAR_IDX = config['STAR_IDX']
 GENOME_FA = config['GENOME_FA']
 BIN = "../bin"
 STAR_IDX_OUT = STAR_IDX + "Genome"
 TRANSCRIPTS = config["TRANSCRIPTS"]
 TRANSCRIPTS_BED = config["TRANSCRIPTS_BED"]
+lib_map = config["LIB_MAP"]
 
 rule all:
   input: 
     {STAR_IDX_OUT},
-    expand('{projects}/fastq/original/' + BCS + '_barcode_keys.txt',
+    expand(DATA + '{projects}/fastq/original/fastqc/{ids}_R1_001_fastqc.zip',
+    zip, ids=[IDS[x] for x in PROJECTS], projects=PROJECTS),
+    expand(DATA + '{projects}/fastq/original/fastqc/{ids}_R2_001_fastqc.zip',
+    zip, ids=[IDS[x] for x in PROJECTS], projects=PROJECTS),
+    expand(DATA + '{projects}/fastq/modified/renamed_{ids}_R2_001.fastq.gz',
+    zip, ids=[IDS[x] for x in PROJECTS], projects=PROJECTS),
+    expand(DATA + "{projects}/star/alignments/Aligned_bc_exons.bam",
     projects=PROJECTS),
-    expand('{projects}/fastq/original/fastqc/{ids}_R1_001_fastqc.zip',
-    zip, ids=IDS, projects=PROJECTS),
-    expand('{projects}/fastq/original/fastqc/{ids}_R2_001_fastqc.zip',
-    zip, ids=IDS, projects=PROJECTS),
-    expand('{projects}/fastq/modified/combined_R2_trimmed.fastq.gz',
+    expand(DATA + "{projects}/dgematrix/dge_matrix.txt",
     projects=PROJECTS),
-    expand("{projects}/star/alignments/Aligned_bc_exons.bam",
-    projects=PROJECTS),
-    expand("{projects}/dgematrix/dge_matrix.txt",
-    projects=PROJECTS),
-    expand("{projects}/featurecounts/assigned_read_counts.txt",
+    expand(DATA + "{projects}/featurecounts/assigned_read_counts.txt",
       projects=PROJECTS)
 
 rule count_umis:
@@ -41,16 +40,16 @@ rule count_umis:
   umi_tools 0.5.3
   """
   input:
-    bam = "{projects}/star/alignments/Aligned_bc_exons.bam",
-    bai = "{projects}/star/alignments/Aligned_bc_exons.bam.bai",
+    bam = DATA + "{projects}/star/alignments/Aligned_bc_exons.bam",
+    bai = DATA + "{projects}/star/alignments/Aligned_bc_exons.bam.bai",
   output:
-    txt = "{projects}/dgematrix/dge_matrix.txt",
-    summary = "{projects}/dgematrix/summary.txt",
+    txt = DATA + "{projects}/dgematrix/dge_matrix.txt",
+    summary = DATA + "{projects}/dgematrix/summary.txt",
   params:
     job_name = "{projects}.dgematrix",
     memory = "select[mem>16] rusage[mem=16]",
   log:
-    "{projects}/dgematrix/logs/make_matrix.txt",
+    DATA + "{projects}/dgematrix/logs/make_matrix.txt",
   resources: all_threads = 1
   shell:
     """
@@ -74,17 +73,17 @@ rule count_reads:
   subread 1.6.0
   """
   input:
-    "{projects}/star/alignments/Aligned_bc.bam",
+    DATA + "{projects}/star/alignments/Aligned_bc.bam",
   output:
-    fc_summary = "{projects}/featurecounts/assigned_read_counts.txt"
+    fc_summary = DATA + "{projects}/featurecounts/assigned_read_counts.txt"
   params:
-    prefix = "{projects}/featurecounts/assigned_read_counts.txt",
+    prefix = DATA + "{projects}/featurecounts/assigned_read_counts.txt",
     job_name = "{projects}.countexons",
     memory = "select[mem>16] rusage[mem=16]",
   threads: 12
   resources: all_threads = 12
   log:
-    "{projects}/featurecounts/log/read_counts.txt"
+    DATA + "{projects}/featurecounts/log/read_counts.txt"
   shell:
     """
     ## add rg tags based on cell barcode (to output read counts per
@@ -124,21 +123,21 @@ rule featurecount_bam:
   subread 1.6.0
   """
   input:
-    bam = "{projects}/star/alignments/Aligned_bc.bam",
-    bai = "{projects}/star/alignments/Aligned_bc.bam.bai",
+    bam = DATA + "{projects}/star/alignments/Aligned_bc.bam",
+    bai = DATA + "{projects}/star/alignments/Aligned_bc.bam.bai",
   output:
-    bam = protected("{projects}/star/alignments/Aligned_bc_exons.bam"),
-    bai = protected("{projects}/star/alignments/Aligned_bc_exons.bam.bai"),
-    fc_summary = "{projects}/featurecounts/assigned_genes.txt"
+    bam = protected(DATA + "{projects}/star/alignments/Aligned_bc_exons.bam"),
+    bai = protected(DATA + "{projects}/star/alignments/Aligned_bc_exons.bam.bai"),
+    fc_summary = DATA + "{projects}/featurecounts/assigned_genes.txt"
   params:
-    prefix = "{projects}/featurecounts/assigned_genes.txt",
-    bam = "{projects}/featurecounts/Aligned_bc.bam.featureCounts.bam",
+    prefix = DATA + "{projects}/featurecounts/assigned_genes.txt",
+    bam = DATA + "{projects}/featurecounts/Aligned_bc.bam.featureCounts.bam",
     job_name = "{projects}.tagexons",
     memory = "select[mem>16] rusage[mem=16]",
   threads: 12
   resources: all_threads = 12
   log:
-    "{projects}/featurecounts/log/gene_overlap.txt"
+    DATA + "{projects}/featurecounts/log/gene_overlap.txt"
   shell:
     """
 
@@ -156,42 +155,75 @@ rule featurecount_bam:
     rm -f {params.bam}
     """  
 
+def _get_seq_and_umi(wildcards):
+  """ lookup global dictionary lib_map via sample
+      wildcard and return settings for selecting
+      cell and umis from read name 
+  """
+  id = os.path.basename(wildcards.projects)
+  if id in lib_map:
+     lib_attrs = lib_map[id]
+     idx_settings = config[lib_attrs]["seq_extract"]
+  else:
+     print("warning: no index settings found for library: {}".format(id),
+       file = sys.stderr)
+     idx_settings = ""
+
+  return idx_settings
+ 
+
+def _get_bcs(wildcards):
+  """ lookup global dictionary lib_map via sample
+      wildcard and return settings for selecting
+      barcode whitelist
+  """
+  id = os.path.basename(wildcards.projects)
+  if id in lib_map:
+     lib_attrs = lib_map[id]
+     bcs_settings = config[lib_attrs]["bcs"]
+  else:
+     print("warning: no bcs settings found for library: {}".format(id),
+       file = sys.stderr)
+     bcs_settings = ""
+
+  return bcs_settings
+
 rule barcode_bam:
   """ add cell barcode to a bam tag """
   input:
-    bam = "{projects}/star/alignments/Aligned.sortedByCoord.out.bam",
-    bcs = "{projects}/fastq/original/" + BCS + "_barcode_keys.txt",
-    bai = "{projects}/star/alignments/Aligned.sortedByCoord.out.bam.bai",
+    bam = DATA + "{projects}/star/alignments/Aligned.sortedByCoord.out.bam",
+    bai = DATA + "{projects}/star/alignments/Aligned.sortedByCoord.out.bam.bai",
+    bcs = _get_bcs
   output:
-    bam = temp("{projects}/star/alignments/Aligned_bc.bam"),
-    bai = temp("{projects}/star/alignments/Aligned_bc.bam.bai"),
+    bam = temp(DATA + "{projects}/star/alignments/Aligned_bc.bam"),
+    bai = temp(DATA + "{projects}/star/alignments/Aligned_bc.bam.bai"),
   params:
+    idx = _get_seq_and_umi,
     job_name = "{project.tagbc}",
     memory = "select[mem>80] rusage[mem=80]",
   log:
-    "{projects}/star/log/tag_bc.txt"
+    DATA + "{projects}/star/log/tag_bc.txt"
   resources: all_threads = 1
   shell:
     """
     module load gcc
-    {BIN}/barcode_tag_bam {input.bam} {input.bcs} {output.bam}
+    {BIN}/barcode_tag_bam {input.bam} {input.bcs} {output.bam} {params.idx}
     samtools index {output.bam}
     module unload gcc
     """
 
 rule star_align:
   input:
-    "{projects}/fastq/modified/combined_R2_trimmed.fastq.gz"
+    DATA + "{projects}/fastq/modified/R2_trimmed.fastq.gz"
   output:
-    bam = temp("{projects}/star/alignments/Aligned.sortedByCoord.out.bam"),
-    bai =
-    temp("{projects}/star/alignments/Aligned.sortedByCoord.out.bam.bai"),
+    bam = temp(DATA + "{projects}/star/alignments/Aligned.sortedByCoord.out.bam"),
+    bai = temp(DATA + "{projects}/star/alignments/Aligned.sortedByCoord.out.bam.bai"),
   params:
-    out_put = "{projects}/star/alignments/",
+    out_put = DATA + "{projects}/star/alignments/",
     job_name = "{project.star}",
     memory = "select[mem>80] rusage[mem=80]",
   log:
-    "{projects}/star/log/alignment.txt"
+    DATA + "{projects}/star/log/alignment.txt"
   threads: 12
   resources: all_threads = 12
   shell:
@@ -207,34 +239,16 @@ rule star_align:
     module unload star
     """
 
-rule combine_fastqs:
-  input:
-    R2 = expand('{projects}/fastq/modified/renamed_{ids}_R2_001_trimmed.fastq.gz',
-      projects=PROJECTS, ids=IDS)
-  output:
-    R2 =
-    protected('{projects}/fastq/modified/combined_R2_trimmed.fastq.gz'),
-  params:
-    job_name = '{projects}.combinefq',
-    memory =  "select[mem>8] rusage[mem=8] span[hosts=1]"
-  log:
-    '{projects}/fastq/log/combine_ids.txt'
-  resources: all_threads = 1
-  shell:
-    """
-    cat {input.R2} > {output.R2}
-    """
-
 rule cutadapt:
   input:
-    '{projects}/fastq/modified/renamed_{ids}_R2_001.fastq.gz'
+    lambda wildcards: DATA + wildcards.projects + '/fastq/modified/renamed_' + IDS[wildcards.projects] + '_R2_001.fastq.gz'
   output:
-    temp('{projects}/fastq/modified/renamed_{ids}_R2_001_trimmed.fastq.gz')
+    temp(DATA + '{projects}/fastq/modified/R2_trimmed.fastq.gz')
   params:
     job_name = '{projects}_trimming',
     memory =  "select[mem>4] rusage[mem=4] "
   log:
-    "{projects}/fastq/log/trimming.txt"
+    DATA + "{projects}/fastq/log/trimming.txt"
   resources: all_threads = 1
   shell:
     "cutadapt -a 'A{{100}}' -m 20 -q 10 -o {output} {input} > {log}"
@@ -242,15 +256,15 @@ rule cutadapt:
 
 rule append_r1_seq_to_R2:
   input:
-    R1 = '{projects}/fastq/original/{ids}_R1_001.fastq.gz',
-    R2 = '{projects}/fastq/original/{ids}_R2_001.fastq.gz',
+    R1 = DATA + '{projects}/fastq/original/{ids}_R1_001.fastq.gz',
+    R2 = DATA + '{projects}/fastq/original/{ids}_R2_001.fastq.gz',
   output:
-    temp('{projects}/fastq/modified/renamed_{ids}_R2_001.fastq.gz')
+    temp(DATA + '{projects}/fastq/modified/renamed_{ids}_R2_001.fastq.gz')
   params:
     job_name = "{projects}.renamefq",
     memory = "select[mem>8] rusage[mem=8] span[hosts=1]"
   log:
-    '{projects}/fastq/log/{ids}_rename_fq.txt'
+    DATA + '{projects}/fastq/log/{ids}_rename_fq.txt'
   resources: all_threads = 1
   shell:
     """
@@ -260,36 +274,19 @@ rule append_r1_seq_to_R2:
       > {output}
     """
 
-rule extract_barcode_ids:
-  input:
-    '{projects}/fastq/original/' + BCS + '.txt'
-  output:
-    '{projects}/fastq/original/' + BCS + '_barcode_keys.txt'
-  params:
-    job_name = 'extract_barcode.{projects}',
-    memory =  "select[mem>4] rusage[mem=4] span[hosts=1]"
-  log:
-    '{projects}/fastq/log/format_{projects}.txt'
-  resources: all_threads = 1
-  shell:
-    """
-    module load gcc
-    Rscript {BIN}/format_barcodes.R {input} {output}
-    """
-
 rule fastqc:
   input:
-    R1 = '{projects}/fastq/original/{ids}_R1_001.fastq.gz',
-    R2 = '{projects}/fastq/original/{ids}_R2_001.fastq.gz',
+    R1 = DATA + '{projects}/fastq/original/{ids}_R1_001.fastq.gz',
+    R2 = DATA + '{projects}/fastq/original/{ids}_R2_001.fastq.gz',
   output:
-    '{projects}/fastq/original/fastqc/{ids}_R1_001_fastqc.zip',
-    '{projects}/fastq/original/fastqc/{ids}_R2_001_fastqc.zip'
+    DATA + '{projects}/fastq/original/fastqc/{ids}_R1_001_fastqc.zip',
+    DATA + '{projects}/fastq/original/fastqc/{ids}_R2_001_fastqc.zip'
   params:
-    out_dir = '{projects}/fastq/original/fastqc/',
+    out_dir = DATA + '{projects}/fastq/original/fastqc/',
     job_name = '{projects}.fastqc',
     memory =  "select[mem>80] rusage[mem=80] span[hosts=1]"
   log:
-    '{projects}/fastq/original/fastqc/log/'
+    DATA + '{projects}/fastq/original/fastqc/log/'
   threads:
     6
   resources: all_threads = 6
