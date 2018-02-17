@@ -592,7 +592,7 @@ sc_objs <- map(sc_objs,
     function(sub_dat){
       og_dat <- select(sc_objs$original$meta_dat,
                           cell_id,
-                          str_subset(colnames(sc_objs$phosphorothioate$meta_dat), "human|mouse|purity"))
+                          str_subset(colnames(sc_objs$original$meta_dat), "human|mouse|purity"))
                           
       cols <- colnames(og_dat)
       new_cols <- c("cell_id", str_c("og_", cols[2:length(cols)]))

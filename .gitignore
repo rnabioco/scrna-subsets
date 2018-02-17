@@ -1,8 +1,10 @@
 .DS_Store
 dbases/*
 data/*
-docs/*
 logs/*
+*.xlsx
+*.png
+*.html
 pipeline/.snakemake/*
 *.swp
 *.pyc
