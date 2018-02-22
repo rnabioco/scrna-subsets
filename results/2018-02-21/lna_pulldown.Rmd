@@ -1,0 +1,647 @@
+---
+title: "Lna pull down analysis"
+author: "Kent Riemondy RBI"
+date: "`R Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: false
+    theme: cosmo
+    highlight: tango
+    fig_caption: true
+    code_folding: hide
+    df_print: paged
+---
+
+## Examine Lna pulldown data
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+```
+
+```{r, message=F, warning=F, echo=F}
+source("../../R/globals.R")
+```
+
+## Organize single cell libraries
+
+First designate the libraries and the cells that were subsampled. 
+
+```{r cell_ids}
+cells <- list(
+  both = c("GACGTTAGTGCCTGTG", "CTGATCCCATGACGGA"),
+  mouse = c("GACGTTAGTGCCTGTG", "CTGATCCCATGACGGA"),
+  human = c("GACGTTAGTGCCTGTG", "CTGATCCCATGACGGA"))
+
+libs <- c(
+  "original_10x",
+  "lna_control",
+  "lna_pulldown")
+
+bc_metadat <- read_tsv(file.path(data_dir, 
+                         "lna_control", 
+                         "fastq",
+                         "original", 
+                         "barcodes_from_10x_run.txt"),
+                         col_names = c("barcode_10x", "cell_id"))
+```
+
+Load and organize a table for each library of read counts per cell per gene, and a table of umi counts per cell per gene. 
+
+```{r read_counts}
+
+## read in featurecount table with read counts per gene per cell
+read_dat <- map(libs, 
+                ~read_tsv(file.path(data_dir, 
+                          .x,
+                          "featurecounts",
+                          "assigned_read_counts.txt"),
+                          skip = 1))
+names(read_dat) <- libs
+
+## read in umi_tools count table with umi counts per gene per cell
+umi_dat <- map(libs, 
+                ~read_tsv(file.path(data_dir, 
+                          .x,
+                          "dgematrix",
+                          "dge_matrix.txt")))
+names(umi_dat) <- libs
+
+## format read table to match umi table
+read_dat <- map(read_dat, function(x){
+                       x <- select(x, gene = Geneid, 7:ncol(x))
+                       cols <- colnames(x)
+                       gene_col <- cols[1]
+                       cell_cols <- cols[2:length(cols)]
+                       new_cell_cols <- str_split(cell_cols, ":", simplify = T)
+                       new_cell_cols <- new_cell_cols[, 2]
+                       new_cell_cols <- str_split(new_cell_cols, "-", simplify = T)
+                       new_cell_cols <- new_cell_cols[, 1]
+                       colnames(x) <- c(gene_col, new_cell_cols)
+                       x
+                     })
+
+
+cell_obj_mdata <- map(cells, 
+                      ~mutate(bc_metadat, 
+                              subsampled = ifelse(cell_id %in% .x,
+                                                  TRUE,
+                                                  FALSE)))
+
+```
+
+Next organize these tables into simple classes called `subsampled-sets` to keep track of each experiments relavant raw, processed, and meta data. 
+
+```{r s3ify}
+#' simple class to hold info for each experiment
+create_sc_obj <- function(umi_df,
+                          read_df,
+                          cell_mdata_df){
+  x <- list()
+  class(x) <- "subsampled-set"
+  x$umis <- umi_df
+  x$reads <- read_df
+  x$meta_dat <- cell_mdata_df
+  return(x)
+}
+
+sc_objs <- list(umi_dat, read_dat, cell_obj_mdata)
+sc_objs <- pmap(sc_objs, create_sc_obj)
+```
+
+Next perform basic processing. 
+  1) generate separate objects to store sparse matrices of umi and read counts. 
+  2) normalize read and umi count data by total library size (sum of all read or umi counts for all cells in the experiment) and report as Reads per million or UMIs per million. 
+  3) Compute per cell metrics (read and umi counts, sequencing saturation)
+
+```{r store_matrices}
+
+tidy_to_matrix <- function(df){
+   df <- as.data.frame(df)
+   rownames(df) <- df[, 1]
+   df[, 1] <- NULL
+   mat <- as.matrix(df)
+   mat <- as(mat, "sparseMatrix")   
+   return(mat)
+}
+
+#' keep both tidy and matrix objs
+generate_matrices <- function(sc_obj){
+  sc_obj$umi_matrix <- tidy_to_matrix(sc_obj$umis)
+  sc_obj$read_matrix <- tidy_to_matrix(sc_obj$reads)
+  sc_obj
+}
+
+#' normalize by library size (Reads per Million)
+norm_libsize <- function(sc_obj){
+  sc_obj$norm_umi <- 1e6 * sweep(sc_obj$umi_matrix, 2, 
+                                 sum(as.vector(sc_obj$umi_matrix)), "/")
+  sc_obj$norm_reads <- 1e6 * sweep(sc_obj$read_matrix, 2, 
+                                   sum(as.vector(sc_obj$read_matrix)), "/")
+  sc_obj
+}
+
+add_metadata <- function(sc_obj, dat){
+  if (is.vector(dat)){
+    new_colname <- deparse(substitute(dat))
+    df <- data_frame(!!new_colname := dat)
+    df[[new_colname]] <- dat
+    df[["cell_id"]] <- names(dat)
+    sc_obj$meta_dat <- left_join(sc_obj$meta_dat,
+                                 df,
+                                 by = "cell_id")
+    
+  } else if (is.data.frame(dat)) {
+    sc_obj$meta_dat <- left_join(sc_obj$meta_dat,
+                                 dat,
+                                 by = "cell_id")
+  }
+  sc_obj
+}
+
+compute_summaries <- function(sc_obj){
+  ## raw counts
+  total_umis <- colSums(sc_obj$umi_matrix)
+  names(total_umis) <- colnames(sc_obj$umi_matrix)
+  total_reads <- colSums(sc_obj$read_matrix)
+  names(total_reads) <- colnames(sc_obj$read_matrix)
+  
+  ## norm counts
+  norm_total_umis <- colSums(sc_obj$norm_umi)
+  names(norm_total_umis) <- colnames(sc_obj$norm_umi)
+  norm_total_reads <- colSums(sc_obj$norm_reads)
+  names(norm_total_reads) <- colnames(sc_obj$norm_reads)
+    
+  sc_obj <- add_metadata(sc_obj, total_umis)
+  sc_obj <- add_metadata(sc_obj, total_reads)
+  sc_obj <- add_metadata(sc_obj, norm_total_umis)
+  sc_obj <- add_metadata(sc_obj, norm_total_reads)
+  
+  ## compute cDNA duplication rate 
+  sc_obj$meta_dat$cDNA_duplication <- 1 - (sc_obj$meta_dat$total_umis /
+                                             sc_obj$meta_dat$total_reads)
+  
+  sc_obj
+}
+
+sc_objs <- map(sc_objs, generate_matrices)
+sc_objs <- map(sc_objs, norm_libsize)
+sc_objs <- map(sc_objs, compute_summaries)
+```
+
+Compute enrichment of reads/umis over the original library. 
+
+```{r calc_enrichment}
+
+sc_objs <- map(sc_objs,
+    function(sub_dat){
+      og_counts <- select(sc_objs$original_10x$meta_dat,
+                          og_total_reads = total_reads,
+                          og_total_umis = total_umis,
+                          og_norm_total_umis = norm_total_umis,
+                          og_norm_total_reads = norm_total_reads,
+                          og_cDNA_duplication = cDNA_duplication,
+                          cell_id)
+      sub_dat$meta_dat <- left_join(sub_dat$meta_dat,
+                         og_counts, 
+                         by = "cell_id")
+      
+      sub_dat$meta_dat <- mutate(sub_dat$meta_dat,
+                                 read_proportion = log2( total_reads / og_total_reads),
+                                 umi_proportion = log2( total_umis / og_total_umis),
+                                 norm_read_proportion = log2( norm_total_reads /
+                                                                og_norm_total_reads),
+                                 norm_umi_proportion = log2( norm_total_umis /
+                                                               og_norm_total_umis))
+      sub_dat
+    })
+
+```
+
+## plot cDNA duplication rate
+
+```{r cDNA_duplication_rate, fig.cap="Note the high level of sequencing saturation (0 = no-duplication, 1 = all duplicates) in the original library. Also note that the libraries tend to have higher saturatioin rates, after subsampling."}
+sc_metadat <- map(sc_objs, ~.x$meta_dat) %>% 
+  bind_rows(.id = "library") 
+
+ggplot(sc_metadat, aes(total_reads, cDNA_duplication)) +
+  geom_point(aes(color = subsampled)) +
+  labs(x = expression(paste("Read count (log"[10],")")),
+       y = "Sequencing saturation") + 
+  scale_x_log10() +
+  scale_color_viridis(discrete = T) +
+  facet_wrap(~library)
+```
+
+## plot read and umi counts per library
+
+```{r plot_read_and_umi_counts}
+color_palette = c("#1F78B4", "#bdbdbd")
+
+global_plot_theme <- theme(
+        legend.position = "top",
+        legend.text = element_text(size = 10),
+        strip.text = element_text(size = 8))
+
+subsampled_metadat <- filter(sc_metadat,
+                             library != "original_10x") %>% 
+  mutate(library = factor(library, 
+                          levels = c(
+                               "lna_control",
+                               "lna_pulldown")))
+
+unnorm_plt <- ggplot(subsampled_metadat, 
+                     aes(og_total_reads / 3, total_reads / 3, colour = subsampled)) + 
+  geom_point(size = 0.5) + 
+  geom_abline(slope = 1) +
+  facet_wrap(~library, nrow = 1) + 
+  coord_fixed() +
+  xlab("original library\nreads count (Thousands)") +
+  ylab("subsampled library\nreads count (Thousands)") +
+ # ggtitle("Raw reads associated with each cell barcode") +
+  scale_colour_manual(name = "subsampled:",
+                      values = color_palette) +
+  theme_cowplot(font_size = 10, line_size = .5) +
+  global_plot_theme
+
+norm_plt <- ggplot(subsampled_metadat, aes(og_norm_total_reads / 1e3, norm_total_reads / 1e3, colour = subsampled)) + 
+  geom_point(size = 0.5) + 
+  geom_abline(slope = 1) + 
+  facet_wrap(~library, nrow = 1) + 
+  xlab("original library\nRPM (Thousands)") +
+  ylab("subsampled library\nRPM (Thousands)") +
+  scale_colour_manual(name = "subsampled:",
+                      values = color_palette) +
+  theme_cowplot(font_size = 10, line_size = 0.5) +
+  theme(aspect.ratio = 1) + 
+  global_plot_theme
+
+unnorm_umi_plt <- ggplot(subsampled_metadat, 
+                         aes(og_total_umis / 1e3, total_umis / 1e3, colour = subsampled)) + 
+  geom_point(size = 0.5) + 
+  geom_abline(slope = 1) +
+  coord_fixed() +
+  facet_wrap(~library, nrow = 1) + 
+  xlab("original library\nUMI count (Thousands)") +
+  ylab("subsampled library\nUMI count (Thousands)") +
+  scale_colour_manual(name = "subsampled:",
+                      values = color_palette) +
+  theme_cowplot(font_size = 10, line_size = .5) +
+  global_plot_theme
+
+norm_umi_plt <- ggplot(subsampled_metadat, 
+                       aes(og_norm_total_umis / 1e3, norm_total_umis / 1e3, colour = subsampled)) + 
+  geom_point(size = 0.5) + 
+  geom_abline(slope = 1) + 
+  facet_wrap(~library, nrow = 1) + 
+  xlab("original library\nUMI normalized RPM (Thousands)") +
+  ylab("subsampled library\nUMIs per Million (Thousands)") +
+  scale_colour_manual(name = "subsampled:",
+                      values = color_palette) +
+  theme_cowplot(font_size = 10, line_size = 0.5) +
+  theme(aspect.ratio = 1) + 
+  global_plot_theme
+
+plt <- plot_grid(unnorm_plt, norm_plt, unnorm_umi_plt, norm_umi_plt, 
+                 labels = "AUTO",
+                 align = 'hv')
+plt
+save_plot("reads_per_barcode_scatterplots.pdf", plt, base_width = 8 )
+```
+
+## Plot enrichment of reads/umis 
+```{r plot_ratio_reads_counts, fig.width=6, fig.height=5}
+
+read <- ggplot(subsampled_metadat, 
+       aes(cell_id, norm_read_proportion, colour = subsampled)) + 
+  geom_point() + 
+  labs(x = "Cell", 
+       y = expression(paste( " Log"[2], " normalized reads ", frac("subsampled", "original")))) +
+  scale_colour_manual(name = "subsampled:", values = color_palette) +
+  facet_wrap(~library, nrow = 1) + 
+  theme_cowplot(font_size = 16, line_size = 1) +
+  theme(axis.text.x = element_blank(),
+        legend.position = "top",
+        legend.text = element_text(size = 12))
+
+umi <- ggplot(subsampled_metadat, 
+       aes(cell_id, norm_umi_proportion, colour = subsampled)) + 
+  geom_point() + 
+  labs(x = "Cell", 
+       y = expression(paste( "Log"[2], " normalized UMIs ", frac("subsampled", "original")))) +
+  scale_colour_manual(name = "subsampled:", values = color_palette) +
+  facet_wrap(~library, nrow = 1) + 
+  theme_cowplot(font_size = 16, line_size = 1) +
+  theme(axis.text.x = element_blank(),
+        legend.position = "top",
+        legend.text = element_text(size = 12))
+
+plt <- plot_grid(read, umi,
+                 labels = "AUTO",
+                 align = 'hv')
+plt
+
+ggsave("reads_umi_ratio_per_barcode_normalized.pdf", width = 6.25, height = 5)
+```
+
+  
+  
+```{r per_cell_ratio_reads_counts}
+ggplot(subsampled_metadat, aes(subsampled, 
+                read_proportion, fill = subsampled)) + 
+  geom_boxplot() + 
+  facet_wrap(~library, nrow = 1) +
+  xlab("Selected for Reamplification") +
+  ylab(expression(paste( "Log"[2], " Reads ", frac("subsampled", "original")))) +
+  scale_fill_manual(name = "subsampled:",
+                    values = color_palette) +
+  theme_cowplot(font_size = 16, line_size = 0.5) +
+  theme(
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    legend.position = "top",
+    legend.text = element_text(size = 12)
+  )
+ggsave("reads_ratio_per_barcode_boxplot.pdf", width = 6, height = 5)
+
+ggplot(subsampled_metadat, aes(subsampled, 
+                umi_proportion, fill = subsampled)) + 
+  geom_boxplot() + 
+  facet_wrap(~library, nrow = 1) +
+  xlab("Selected for Reamplification") +
+  ylab(expression(paste( "Log"[2], " UMIs ", frac("subsampled", "original")))) +
+  scale_fill_manual(name = "subsampled:",
+                    values = color_palette) +
+  theme_cowplot(font_size = 16, line_size = 0.5) +
+  theme(
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    legend.position = "top",
+    legend.text = element_text(size = 12)
+  )
+ggsave("umi_ratio_per_barcode_boxplot.pdf", width = 6, height = 5)
+
+ggplot(subsampled_metadat, aes(subsampled, 
+                norm_read_proportion, fill = subsampled)) + 
+  geom_boxplot() + 
+  facet_wrap(~library, nrow = 1) +
+  xlab("Selected for Reamplification") +
+  ylab(expression(paste( "Log"[2], " normalized Reads ", frac("subsampled", "original")))) +
+  scale_fill_manual(name = "subsampled:",
+                    values = color_palette) +
+  theme_cowplot(font_size = 16, line_size = 0.5) +
+  theme(
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    legend.position = "top",
+    legend.text = element_text(size = 12)
+  )
+ggsave("norm_reads_ratio_per_barcode_boxplot.pdf", width = 6, height = 5)
+
+ggplot(subsampled_metadat, aes(subsampled, 
+                norm_umi_proportion, fill = subsampled)) + 
+  geom_boxplot() + 
+  facet_wrap(~library, nrow = 1) +
+  xlab("Selected for Reamplification") +
+  ylab(expression(paste( "Log"[2], " normalized UMIs ", frac("subsampled", "original")))) +
+  scale_fill_manual(name = "subsampled:",
+                    values = color_palette) +
+  theme_cowplot(font_size = 16, line_size = 0.5) +
+  theme(
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    legend.position = "top",
+    legend.text = element_text(size = 12)
+  )
+ggsave("norm_umi_ratio_per_barcode_boxplot.pdf", width = 6, height = 5)
+
+```
+
+```{r  total_read_enrichment}
+
+dat <- group_by(subsampled_metadat, library) %>%
+  filter(library != "original_10x") %>% 
+  mutate(total_new = sum(total_reads, na.rm = T), 
+         total_old = sum(og_total_reads, na.rm = T))
+
+dat_group <- group_by(dat, library, subsampled) %>% 
+  summarize(total_new = sum(total_reads, na.rm = T) / unique(total_new), 
+            total_old = sum(og_total_reads, na.rm = T) / unique(total_old)) %>% 
+  gather(lib, percent_lib, -library, -subsampled ) %>%
+  mutate(lib = factor(lib, levels = c("total_old", "total_new"), 
+                      labels = c("original\nlibrary", "subsampled\nlibrary")))
+
+ggplot(dat_group, aes(lib, percent_lib, fill = subsampled)) + 
+  geom_bar(stat = "identity") + 
+  ylab("Fraction of\n Reads Assigned") +
+  scale_fill_manual(name = "subsampled:",
+                    values = color_palette) +
+  facet_wrap(~library) + 
+  theme_cowplot(font_size = 16, line_size = 1) +
+  theme(
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(angle = 90, hjust = 0.5, vjust = 0.5),
+    legend.position = "top",
+    legend.text = element_text(size = 16)
+  )
+
+ggsave("proportion_reads_all_barcode_barplot.pdf", width = 7, height = 7)
+
+dat_group %>% 
+ rename(Method = library) %>% 
+  spread(lib, percent_lib) %>% 
+  mutate(`Targeted Library Read Fold-Enrichment` = `subsampled\nlibrary` / `original\nlibrary`) %>%
+  filter(subsampled == T) %>% 
+  select(Method, `Targeted Library Read Fold-Enrichment`)
+```
+
+
+## Compare species 
+
+```{r calc_species}
+
+add_species_counts <- function(sc_obj, 
+                               mouse_gene_prefix = "mm38::",
+                               human_gene_prefix = "hg38::"){
+  
+  ## get mouse and human reads
+  g_ids <- rownames(sc_obj$read_matrix)
+  mouse_ids <- str_subset(g_ids, str_c("^", mouse_gene_prefix))
+  human_ids <- str_subset(g_ids, str_c("^", human_gene_prefix))
+  
+  mouse_reads = colSums(sc_obj$read_matrix[mouse_ids, ])
+  human_reads = colSums(sc_obj$read_matrix[human_ids, ])
+  
+  ## get mouse and human UMIs
+  g_ids <- rownames(sc_obj$umi_matrix)
+  mouse_ids <- str_subset(g_ids, str_c("^", mouse_gene_prefix))
+  human_ids <- str_subset(g_ids, str_c("^", human_gene_prefix))
+  
+  mouse_umis = colSums(sc_obj$umi_matrix[mouse_ids, ])
+  human_umis = colSums(sc_obj$umi_matrix[human_ids, ])
+  
+  ## get norm counts for reads 
+  g_ids <- rownames(sc_obj$norm_reads)
+  mouse_ids <- str_subset(g_ids, str_c("^", mouse_gene_prefix))
+  human_ids <- str_subset(g_ids, str_c("^", human_gene_prefix))
+  
+  norm_human_reads <- colSums(sc_obj$norm_reads[human_ids, ])
+  norm_mouse_reads <- colSums(sc_obj$norm_reads[mouse_ids, ])
+  
+  ## get norm counts for umis
+  g_ids <- rownames(sc_obj$norm_umi)
+  mouse_ids <- str_subset(g_ids, str_c("^", mouse_gene_prefix))
+  human_ids <- str_subset(g_ids, str_c("^", human_gene_prefix))
+  
+  norm_human_umis <- colSums(sc_obj$norm_umi[human_ids, ])
+  norm_mouse_umis <- colSums(sc_obj$norm_umi[mouse_ids, ])
+  
+  sc_obj <- add_metadata(sc_obj, human_reads)
+  sc_obj <- add_metadata(sc_obj, mouse_reads)
+  sc_obj <- add_metadata(sc_obj, human_umis)
+  sc_obj <- add_metadata(sc_obj, mouse_umis)
+  sc_obj <- add_metadata(sc_obj, norm_human_reads)
+  sc_obj <- add_metadata(sc_obj, norm_mouse_reads)
+  sc_obj <- add_metadata(sc_obj, norm_human_umis)
+  sc_obj <- add_metadata(sc_obj, norm_mouse_umis)
+  
+  ## make sure mouse + human == total
+  stopifnot(all(sc_obj$meta_dat$total_reads == sc_obj$meta_dat$mouse_reads + 
+                                               sc_obj$meta_dat$human_reads, na.rm = T))
+  
+  stopifnot(all(sc_obj$meta_dat$total_umis == sc_obj$meta_dat$mouse_umis + 
+                                               sc_obj$meta_dat$human_umis, na.rm = T))
+  ## check floating point totals
+  tol <- 1e-5
+  reads_check <- all(abs(sc_obj$meta_dat$norm_total_reads - (sc_obj$meta_dat$norm_mouse_reads + 
+                                               sc_obj$meta_dat$norm_human_reads)) <= tol, na.rm = T)
+  stopifnot(reads_check)
+  
+  umis_check <- all(abs(sc_obj$meta_dat$norm_total_umis - (sc_obj$meta_dat$norm_mouse_umis + 
+                                               sc_obj$meta_dat$norm_human_umis)) <= tol, na.rm = T)
+  stopifnot(umis_check)
+  ## calculate species purity (human / human + mouse)
+  sc_obj$meta_dat <- mutate(sc_obj$meta_dat, 
+                            purity_reads = human_reads / (human_reads + mouse_reads),
+                            purity_umis = human_umis / (human_umis + mouse_umis))
+  sc_obj
+}
+
+sc_objs <- map(sc_objs, add_species_counts)
+```
+
+```{r og_species_dat}
+## add in metadat columns for original mouse and original human data
+sc_objs <- map(sc_objs,
+    function(sub_dat){
+      og_dat <- select(sc_objs$original_10x$meta_dat,
+                          cell_id,
+                          str_subset(colnames(sc_objs$original_10x$meta_dat),
+                                     "human|mouse|purity"))
+                          
+      cols <- colnames(og_dat)
+      new_cols <- c("cell_id", str_c("og_", cols[2:length(cols)]))
+      colnames(og_dat) <- new_cols
+      
+      sub_dat$meta_dat <- left_join(sub_dat$meta_dat,
+                         og_dat, 
+                         by = "cell_id")
+      
+      sub_dat$meta_dat <- mutate(sub_dat$meta_dat,
+                                 norm_human_read_proportion = log2( norm_human_reads /
+                                                                og_norm_human_reads),
+                                 norm_human_umi_proportion = log2( norm_human_umis /
+                                                               og_norm_human_umis),
+                                 norm_mouse_read_proportion = log2( norm_mouse_reads /
+                                                                og_norm_mouse_reads),
+                                 norm_mouse_umi_proportion = log2( norm_mouse_umis /
+                                                               og_norm_mouse_umis))
+      
+      sub_dat
+    })
+
+
+subsampled_metadat <- map(sc_objs, ~.x$meta_dat) %>% 
+  bind_rows(.id = "library") %>% 
+   mutate(library = factor(library, 
+                          levels = c(
+                               "original_10x",
+                               "lna_control",
+                               "lna_pulldown")))
+```
+
+
+```{r plot_mapped_reads_counts}
+ggplot(subsampled_metadat, aes(human_reads / 1e3, mouse_reads / 1e3, 
+                               colour = subsampled)) +
+  geom_point(size = 0.5) + 
+  facet_wrap(~library, nrow = 1, scales = "free") + 
+  xlab("Human reads (Thousands)") +
+  ylab("Mouse reads (Thousands)") +
+  scale_colour_manual(name = "subsampled:",
+                      values = color_palette) +
+  theme_cowplot(font_size = 16, line_size = 1) +
+  theme(legend.position = "top",
+        legend.text = element_text(size = 12))
+ggsave("reads_scatterplot_human_mouse.pdf", width = 14, height = 7)
+
+subsampled_metadat <- filter(subsampled_metadat, 
+                             library != "original_10x")
+
+ggplot(subsampled_metadat, 
+       aes(og_norm_human_reads / 1e3, norm_human_reads / 1e3, colour = subsampled)) + 
+  geom_point(size = 0.5) + 
+  geom_abline(slope = 1) +
+  facet_wrap(~library, nrow = 1) + 
+  xlab("original library\nRPM (Thousands)") +
+  ylab("subsampled library\nRPM (Thousands)") +
+  scale_colour_manual(name =  "Human subsampled:",
+                      values = color_palette) +
+  theme_cowplot(font_size = 12, line_size = 0.5) +
+  global_plot_theme
+ggsave("reads_scatterplot_normalized_human.pdf")
+
+ggplot(subsampled_metadat, 
+       aes(og_norm_mouse_reads / 1e3, norm_mouse_reads / 1e3, colour = subsampled)) + 
+  geom_point(size = 0.5) + 
+  facet_wrap(~library, nrow = 1) + 
+  xlab("original library\nRPM (Thousands)") +
+  ylab("subsampled library\nRPM (Thousands)") +
+  scale_colour_manual(name =  "Mouse subsampled:",
+                      values = color_palette) +
+  theme_cowplot(font_size = 12, line_size = 0.5) +
+  global_plot_theme
+ggsave("reads_scatterplot_normalized_mouse.pdf")
+
+ggplot(subsampled_metadat, 
+       aes(cell_id, norm_human_read_proportion, 
+                               colour = subsampled)) + 
+  geom_point() + 
+  ylab(expression(paste( "Log"[2], " normalized human ", frac("subsampled", "original")))) +
+  scale_colour_manual(name =  "subsampled:", values = color_palette) +
+  facet_wrap(~library, nrow = 1) + 
+  theme_cowplot(font_size = 16, line_size = 1) +
+  theme(
+    axis.text.x = element_blank(),
+    legend.position = "top",
+    legend.text = element_text(size = 16)
+  )
+ggsave("reads_ratio_scatterplot_normalized_human.pdf", width = 7, height = 7)
+
+ggplot(subsampled_metadat, aes(cell_id, norm_mouse_read_proportion, colour = subsampled)) + 
+  geom_point() + 
+  ylab(expression(paste( "Log"[2], " normalized mouse ", frac("subsampled", "original")))) +
+  scale_colour_manual(name =  "subsampled:", values = color_palette) +
+  facet_wrap(~library, nrow = 1) + 
+  theme_cowplot(font_size = 16, line_size = 1) +
+  theme(
+    axis.text.x = element_blank(),
+    legend.position = "top",
+    legend.text = element_text(size = 16)
+  )
+ggsave("reads_ratio_scatterplot_normalized_mouse.pdf", width = 7, height = 7)
+```
+

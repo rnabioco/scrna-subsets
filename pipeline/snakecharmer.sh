@@ -23,6 +23,7 @@ module load fastqc/0.10.1
 module load bowtie/0.12.9
 module load samtools/1.5
 module load star/2.5.1b
+module load gcc
 
 # other programs (not in modules)
 # umitools="/vol3/home/riemondy/.local/bin/umi_tools"

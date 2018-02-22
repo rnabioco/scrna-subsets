@@ -3,8 +3,9 @@ shell.prefix("source ~/.bash_profile; ")
 
 import glob
 import os
+from os import path
 
-''' rules to unzip and demultiplex fastqs into per cell fastq '''
+""" Snakemake pipeline to process wafergen or 10x single cell libraries """
 
 configfile: "config_all.yaml"
 
@@ -66,7 +67,6 @@ rule count_umis:
       -L {output.summary}
     """
 
-
 rule count_reads: 
   """ use feature counts to 
   report read counts 
@@ -79,31 +79,15 @@ rule count_reads:
   params:
     prefix = DATA + "{projects}/featurecounts/assigned_read_counts.txt",
     job_name = "{projects}.countexons",
-    memory = "select[mem>16] rusage[mem=16]",
+    memory = "select[mem>250] rusage[mem=250]",
   threads: 12
   resources: all_threads = 12
   log:
     DATA + "{projects}/featurecounts/log/read_counts.txt"
   shell:
     """
-    ## add rg tags based on cell barcode (to output read counts per
-    ## cell via featureCounts using the byReadGroup option
-    module load python
-
-    samtools view -h {input} \
-      | sed 's/CN:Z:/RG:Z:/' \
-      | samtools view -bS \
-      > {input}.tmpsed 
-
-    python {BIN}/addRGtoSAMHeader.py \
-      -i {input}.tmpsed \
-      -o - \
-      -H \
-      | samtools reheader \
-      - {input}.tmpsed \
-      > {input}.tmpbam
-    
-    rm -f {input}.tmpsed
+    module load gcc
+    {BIN}/rgtag_bam {input} {input}".tmpbam"
 
     /vol3/home/riemondy/src/subread-1.6.0-Linux-x86_64/bin/featureCounts \
       -a {TRANSCRIPTS} \
@@ -276,17 +260,19 @@ rule append_r1_seq_to_R2:
 
 rule fastqc:
   input:
-    R1 = DATA + '{projects}/fastq/original/{ids}_R1_001.fastq.gz',
-    R2 = DATA + '{projects}/fastq/original/{ids}_R2_001.fastq.gz',
+    R1 = path.join(DATA, "{projects}", "fastq", "original", "{ids}_R1_001.fastq.gz"),
+    R2 = path.join(DATA, "{projects}", "fastq", "original", "{ids}_R2_001.fastq.gz"),
   output:
-    DATA + '{projects}/fastq/original/fastqc/{ids}_R1_001_fastqc.zip',
-    DATA + '{projects}/fastq/original/fastqc/{ids}_R2_001_fastqc.zip'
+    path.join(DATA, "{projects}", "fastq", "original", "fastqc",
+              "{ids}_R1_001_fastqc.zip"),
+    path.join(DATA, "{projects}", "fastq", "original", "fastqc",
+              "{ids}_R2_001_fastqc.zip")
   params:
-    out_dir = DATA + '{projects}/fastq/original/fastqc/',
+    out_dir = path.join(DATA, "{projects}", "fastq", "original", "fastqc"),
     job_name = '{projects}.fastqc',
     memory =  "select[mem>80] rusage[mem=80] span[hosts=1]"
   log:
-    DATA + '{projects}/fastq/original/fastqc/log/'
+    path.join(DATA, "{projects}", "fastq", "original", "fastqc", "log")
   threads:
     6
   resources: all_threads = 6

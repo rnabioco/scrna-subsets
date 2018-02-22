@@ -13,6 +13,7 @@ pipeline/.snakemake/*
 *.o
 *barcode_tag_bam
 *count_bcs
+*rgtag_bam
 logs/
 *.pdf
 results/*/*.txt
