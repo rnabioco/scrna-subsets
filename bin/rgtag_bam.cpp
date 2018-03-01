@@ -1,45 +1,6 @@
-#include <zlib.h>
-#include <stdio.h>
-#include <iostream>
-#include <vector>
-#include <string>
-#include <unordered_set>
-#include "htslib/hts.h"
-#include "htslib/sam.h"
-#include "htslib/bgzf.h"
+#include "subsampling.h"
 #include "htslib/cram/sam_header.h"
 
-// class for handling bam file opening and closing
-class BamReader {
-public:
-  samFile* in;
-  hts_idx_t* idx;
-  BGZF* bz;
-  BamReader(const std::string& bampath, int cache_size=10*BGZF_MAX_BLOCK_SIZE) ;
-  
-  ~BamReader(){
-    hts_idx_destroy(idx);
-    sam_close(in);
-  }
-};
-
-BamReader::BamReader(const std::string& bampath, int cache_size) {
-  const char* cbampath = bampath.c_str();
-  in = sam_open(cbampath, "rb");
-  if (in == NULL) {
-    throw std::runtime_error("Fail to open BAM file") ;
-  }
-  
-  bz = in->fp.bgzf ; // bgzf file pointer
-  idx = bam_index_load(cbampath); // load BAM index
-  if (idx == 0) {
-    std::cerr << "BAM indexing file is not available for file " << bampath << std::endl;
-  }
-  
-  if (cache_size > 0){
-    bgzf_set_cache_size(bz, cache_size);
-  }
-}
 
 std::unordered_set<std::string> get_rg_tags(std::string filename){
   
