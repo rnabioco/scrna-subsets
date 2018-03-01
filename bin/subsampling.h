@@ -3,10 +3,12 @@
 
 #include <zlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <iostream>
 #include <fstream>
 #include <string>
 #include <sstream>
+#include <iterator>
 #include <vector>
 #include <string>
 #include <map>
