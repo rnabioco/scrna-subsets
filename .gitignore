@@ -14,6 +14,8 @@ pipeline/.snakemake/*
 *barcode_tag_bam
 *count_bcs
 *rgtag_bam
+*append_read_name
+*get_molecule_info
 logs/
 *.pdf
 results/*/*.txt
