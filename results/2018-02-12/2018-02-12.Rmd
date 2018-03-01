@@ -87,19 +87,19 @@ bc_metadat <- file.path(data_dir,
                         "original",
                         "fastq",
                         "original",
-                        "well_data.txt")
+                        "well_data_barcode_keys.txt")
 
-bc_metadat <- read_tsv(bc_metadat)
+bc_metadat <- read_tsv(bc_metadat, col_names = c("cell_id", "Barcode"))
 
-bc_metadat <- select(bc_metadat,
-                     Row, 
-                     Col, 
-                     Sample,
-                     Barcode)
+#bc_metadat <- select(bc_metadat,
+#                     Row, 
+#                     Col, 
+#                     Sample,
+#                     Barcode)
 
-bc_metadat <- mutate(bc_metadat,
-                     Sample = str_replace_all(Sample, "-", ""),
-                     cell_id = str_c("Cell", Sample, Row, Col, sep = "_"))
+#bc_metadat <- mutate(bc_metadat,
+#                     Sample = str_replace_all(Sample, "-", ""),
+#                     cell_id = str_c("Cell", Sample, Row, Col, sep = "_"))
 bc_metadat
 ```
 
@@ -398,6 +398,19 @@ plt <- plot_grid(read, umi,
 plt
 
 ggsave("reads_umi_ratio_per_barcode_normalized.pdf", width = 6.25, height = 5)
+
+umi <- ggplot(filter(subsampled_metadat, library == "phosphorothioate"), 
+       aes(og_total_umis, norm_read_proportion, colour = subsampled)) + 
+  geom_point() + 
+  labs(x = "Total UMIs per barcode", 
+       y = expression(paste( "Log"[2], " UMIs ", frac("subsampled", "original")))) +
+  scale_colour_manual(name = "subsampled:", values = color_palette) +
+  facet_wrap(~library, nrow = 1) + 
+  theme_cowplot(font_size = 16, line_size = 1) +
+  theme(legend.position = "top",
+        legend.text = element_text(size = 12))
+
+ggsave("umi_ratio_MA_normalized.pdf", umi, width =5, height = 5)
 ```
 
   

@@ -345,6 +345,32 @@ plt <- plot_grid(read, umi,
 plt
 
 ggsave("reads_umi_ratio_per_barcode_normalized.pdf", width = 6.25, height = 5)
+
+
+umi <- ggplot(filter(subsampled_metadat, library == "lna_pulldown"), 
+       aes(cell_id, norm_umi_proportion, colour = subsampled)) + 
+  geom_point() + 
+  labs(x = "Cell", 
+       y = expression(paste( "Log"[2], " normalized UMIs ", frac("subsampled", "original")))) +
+  scale_colour_manual(name = "subsampled:", values = color_palette) +
+  facet_wrap(~library, nrow = 1) + 
+  theme_cowplot(font_size = 16, line_size = 1) +
+  theme(axis.text.x = element_blank(),
+        legend.position = "top",
+        legend.text = element_text(size = 12))
+
+umi <- ggplot(filter(subsampled_metadat, library == "lna_pulldown"), 
+       aes(og_total_umis, norm_read_proportion, colour = subsampled)) + 
+  geom_point() + 
+  labs(x = "Total UMIs per barcode", 
+       y = expression(paste( "Log"[2], " UMIs ", frac("subsampled", "original")))) +
+  scale_colour_manual(name = "subsampled:", values = color_palette) +
+  facet_wrap(~library, nrow = 1) + 
+  theme_cowplot(font_size = 16, line_size = 1) +
+  theme(legend.position = "top",
+        legend.text = element_text(size = 12))
+
+ggsave("umi_ratio_MA_normalized.pdf", umi, width =5, height = 5)
 ```
 
   
@@ -428,8 +454,10 @@ dat <- group_by(subsampled_metadat, library) %>%
          total_old = sum(og_total_reads, na.rm = T))
 
 dat_group <- group_by(dat, library, subsampled) %>% 
-  summarize(total_new = sum(total_reads, na.rm = T) / unique(total_new), 
-            total_old = sum(og_total_reads, na.rm = T) / unique(total_old)) %>% 
+  summarize(total_new = sum(total_reads, 
+                            na.rm = T) / unique(total_new), 
+            total_old = sum(og_total_reads, 
+                            na.rm = T) / unique(total_old)) %>% 
   gather(lib, percent_lib, -library, -subsampled ) %>%
   mutate(lib = factor(lib, levels = c("total_old", "total_new"), 
                       labels = c("original\nlibrary", "subsampled\nlibrary")))
@@ -643,5 +671,74 @@ ggplot(subsampled_metadat, aes(cell_id, norm_mouse_read_proportion, colour = sub
     legend.text = element_text(size = 16)
   )
 ggsave("reads_ratio_scatterplot_normalized_mouse.pdf", width = 7, height = 7)
+```
+
+## Genes detected
+
+
+```{r genes}
+
+## compute per gene or per gene/umi combo enrichment
+detected_molecules <- function(sc_obj, molecule = "gene"){
+  umis <- sc_obj$umi_matrix
+  if (molecule == "gene"){
+    human_mat <- umis[str_detect(rownames(umis), "hg38::"), ]
+    mouse_mat <- umis[str_detect(rownames(umis), "mm38::"), ]
+    n_human_genes <- colSums(human_mat > 0)
+    n_mouse_genes <- colSums(mouse_mat > 0)
+    out_mdat <- data_frame(cell_id = colnames(umis),
+      n_human_genes = n_human_genes,
+      n_mouse_genes = n_mouse_genes)
+    sc_obj <- add_metadata(sc_obj, out_mdat)
+    }
+  
+}
+sc_objs <- map(sc_objs, ~detected_molecules(.x))
+```
+
+```{r gene_plot}
+subsampled_metadat <- map(sc_objs, ~.x$meta_dat) %>% 
+  bind_rows(.id = "library") %>% 
+   mutate(library = factor(library, 
+                          levels = c(
+                               "original_10x",
+                               "lna_control",
+                               "lna_pulldown")))
+
+og_genes <- filter(subsampled_metadat, 
+                   library == "original_10x") %>% 
+  dplyr::select(cell_id, 
+                og_human_genes = n_human_genes, 
+                og_mouse_genes = n_mouse_genes)
+
+subsampled_metadat <- left_join(subsampled_metadat, 
+                                og_genes,
+                                by = "cell_id")
+
+ggplot(subsampled_metadat, aes(n_human_genes, 
+                               og_human_genes, colour = subsampled)) + 
+  geom_point() + 
+  ylab("subsampled_genes") +
+  xlab("original_genes") + 
+  scale_colour_manual(name =  "subsampled:", values = color_palette) +
+  facet_wrap(~library, nrow = 1) + 
+  theme_cowplot(font_size = 16, line_size = 1) +
+  theme(
+    legend.position = "top",
+    legend.text = element_text(size = 16)
+  )
+
+ggplot(subsampled_metadat, aes(n_mouse_genes, 
+                               og_mouse_genes, colour = subsampled)) + 
+  geom_point() + 
+  ylab("subsampled_genes") +
+  xlab("original_genes") + 
+  scale_colour_manual(name =  "subsampled:", values = color_palette) +
+  facet_wrap(~library, nrow = 1) + 
+  theme_cowplot(font_size = 16, line_size = 1) +
+  theme(
+    legend.position = "top",
+    legend.text = element_text(size = 16)
+  )
 ```
 
