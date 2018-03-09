@@ -742,3 +742,112 @@ ggplot(subsampled_metadat, aes(n_mouse_genes,
   )
 ```
 
+### Parse out new versus previously identified genes
+
+```{r genes_new_old}
+
+
+calc_gene_sensitivity <- function(sc_obj, 
+                                  type = "umi",
+                                  mouse_gene_prefix = "mm38::",
+                                  human_gene_prefix = "hg38::"){
+  
+  if (type == "umi"){
+    count_matrix <- sc_obj$umi_matrix
+  } else {
+    count_matrix <- sc_obj$read_matrix
+  }
+  # generate list named with barcode of each detected gene and 
+  # respective read/umi count
+  genes_detected <- apply(count_matrix, 2, function(x) x[x > 0])
+  sc_obj$genes_detected <- genes_detected
+  sc_obj
+}
+
+sc_objs <- map(sc_objs, calc_gene_sensitivity)
+  
+```
+
+```{r compare_original}
+sc_objs <- map(sc_objs, 
+           function(x){
+             og_genes <- sc_objs$original_10x$genes_detected
+             sub_genes <- x$genes_detected
+             
+             # subset list of cell barcodes to the same as the og experiment
+             # and also reorders the barcodes to match
+             sub_genes <- sub_genes[names(og_genes)]
+             
+             if(length(sub_genes) != length(og_genes)){
+               stop("barcode lengths not the same")
+             }
+             shared_genes <- map2(sub_genes, 
+                                  og_genes,
+                                  ~intersect(names(.x),
+                                             names(.y)))
+             new_genes <- map2(sub_genes,
+                               og_genes,
+                               ~setdiff(names(.x),
+                                        names(.y)))
+             
+             not_recovered_genes <- map2(og_genes,
+                                         sub_genes,
+                                         ~setdiff(names(.x),
+                                                  names(.y)))
+             x$shared_genes <- shared_genes
+             x$new_genes <- new_genes
+             x$not_recovered_genes <- not_recovered_genes
+             return(x)
+             })
+
+## add gene recovery info to meta data table
+sc_objs <- map(sc_objs, 
+           function(x){
+             gene_mdata <- map(x$shared_genes, length)
+             gene_mdata <- data_frame(cell_id = names(gene_mdata),
+                                      shared_genes = unname(unlist(gene_mdata)))
+             gene_mdata <- mutate(gene_mdata,
+                                  not_recovered_genes = map_int(x$not_recovered_genes,
+                                                                length),
+                                  new_genes = map_int(x$new_genes, 
+                                                      length))
+             x <- add_metadata(x, gene_mdata)
+             x
+           })
+
+subsampled_metadat <- map(sc_objs, ~.x$meta_dat) %>% 
+  bind_rows(.id = "library") %>% 
+   mutate(library = factor(library, 
+                          levels = c(
+                               "original_10x",
+                               "lna_control",
+                               "lna_pulldown")))
+```
+
+
+```{r per_cell_gene_recovery}
+
+genes_recovered <- subsampled_metadat %>% 
+  dplyr::filter(library != "original_10x") %>% 
+  dplyr::select(cell_id, 
+                library,
+                subsampled,
+                shared_genes,
+                not_recovered_genes, 
+                new_genes)
+
+genes_recovered <- gather(genes_recovered, 
+                          key = type, value = count, 
+                          -cell_id, -subsampled, -library)
+ggplot(genes_recovered, 
+       aes(cell_id, count)) +
+  geom_point(aes(color = subsampled),
+             size = 0.5) +
+  facet_grid(type ~ library) +
+  theme(axis.text.x = element_blank()) +
+  scale_color_viridis(discrete = T)
+
+genes_recovered %>% 
+  dplyr::filter(library == "lna_pulldown",
+                subsampled)
+```

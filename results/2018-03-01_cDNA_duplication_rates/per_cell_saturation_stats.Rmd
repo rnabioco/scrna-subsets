@@ -67,9 +67,9 @@ The `cellrangerRKit` is equipped with a function `load_molecule_info()` which wi
 ```{r show_data, message = F, warning = F}
 library(cellrangerRkit)
 library(dtplyr)
-library(dplyr)
 library(cowplot)
 library(viridis)
+library(tidyverse)
 ```
 
   The barcode and umi are encoded in a integer64 object. Here's the python code in cell ranger that encodes/decodes the object. 
@@ -570,6 +570,137 @@ plot_tsne(tsne_dat)
 
 ## Pick cells
 
+  From the Jorge Dipaolo experiment a set of 3 megakaryocytes will be picked and resampled. 
+  
+```{r barcodes}
+megacytes <- read_csv("../../docs/megacodes.csv")
+
+c2_expt <- megacytes %>% 
+  dplyr::filter(orig.ident == "C2") %>% 
+  mutate(X1 = str_replace(X1, "^C2_", ""))
+
+dat <- dat %>% 
+  mutate(seqs = str_replace(seqs, "-1$", ""))
+
+mega_dat <- left_join(c2_expt, 
+                      dat,
+                      by = c("X1" = "seqs"))
+
+ggplot(mega_dat, aes(cDNA_duplication_rate)) + 
+  geom_histogram(bins = 50)
+
+ggplot(mega_dat, aes(nUMI)) + 
+  geom_histogram(bins = 50)
+
+ggplot(mega_dat, aes(nGene)) + 
+  geom_histogram(bins = 50)
+
+gene_summary <- summary(mega_dat$nGene)
+umi_summary <- summary(mega_dat$nUMI)
+dup_summary <- summary(mega_dat$cDNA_duplication_rate)
+
+gene_summary
+umi_summary
+dup_summary
+
+
+typical_cells <- mega_dat %>% 
+  filter(nGene < gene_summary[3] * 1.10, 
+         nGene > gene_summary[3] * 0.90, 
+         nUMI < umi_summary[3] * 1.10,
+         nUMI > umi_summary[3] * .90,
+         cDNA_duplication_rate < dup_summary[3] * 1.10,
+         cDNA_duplication_rate > dup_summary[3] * 0.90)
+
+
+typical_cells
+```
+
+```{r tsne}
+library(ggrepel)
+dat <- mutate(dat, 
+              selected_cells = seqs %in% typical_cells$X1) %>% 
+  filter(expt == "C2") %>% 
+  arrange(desc(total_umis)) %>% 
+  ungroup() %>% 
+  mutate(bc_rank = row_number())
+
+selected_dat <- dat %>% 
+  filter(selected_cells)
+
+plt <- ggplot(dat, 
+       aes(TSNE.1, TSNE.2)) + 
+  geom_point(aes(colour = selected_cells), 
+             size = 1) +
+  geom_label_repel(data = selected_dat,
+             aes_string(x = "TSNE.1", 
+                        label = "seqs")) +
+  scale_color_viridis(discrete = T) 
+
+save_plot("tsne.pdf", plt, base_height = 6)
+```
+
+Lastly, reannotate which cells are mouse or human
+
+```{r}
+library(kentr)
+
+# load in all barcode data
+
+bcs <- load_dat("20180215_kirkpatrick/C2", "GRCh38")
+bcs <- bcs %>%
+  group_by(barcode) %>% 
+  summarize(total_umis = n(),
+            total_reads = sum(as.integer(reads))) %>% 
+  arrange(desc(total_umis)) %>% 
+  as_data_frame() %>% 
+  ungroup() %>% 
+  mutate(bc_rank = row_number(),
+         lib_prop = total_umis / sum(total_umis))
+
+# Decode the barcode slow!
+all_seqs <- mutate(bcs, seqs = decompress_sequences(barcode, 16))
+
+# calc all pairwise hamming distances and generate logical matrix indicating which
+# sequences are equal to the minimum  discovered hamming dist. Slow, 1-2 minutes
+
+map(selected_dat$seqs, 
+    ~kentr::get_hamming(.x, all_seqs$seqs)) %>%  
+  map(~min(.x[.x > 0]) == .x) -> min_hamming_match
+
+# find the indexes within the original barcode data that are equal to two
+hdist_idxs <- map(min_hamming_match, ~which(.x))
+
+# get barcode with highest total-read count with hamming dist 2
+best_match_bc <- map_df(hdist_idxs, ~all_seqs[.x, ] 
+                     %>% arrange(desc(total_umis)) 
+                     %>% slice(1))
+
+#rename to allow binding with output data
+best_match_bc <- dplyr::rename(best_match_bc,
+                               nearest_barcode = seqs,
+                               nearest_total_umis = total_umis,
+                               nearest_total_reads = total_reads,
+                               nearest_lib_prop = lib_prop,
+                               nearest_barcode_rank = bc_rank
+                               ) %>% select(-barcode)
+selected_dat <- left_join(selected_dat, all_seqs) %>% select(-barcode)
+#append to original data, row order is the same
+filtered <- bind_cols(selected_dat, best_match_bc)
+
+#add in hamming dists 
+rowwise(filtered) %>% 
+  mutate(., hamming_dist = get_hamming(seqs, nearest_barcode)) %>% 
+  ungroup() -> filtered
+filtered
+
+write_tsv(filtered, "barcodes_to_pick.txt")
+
+selected_cells = c(
+  "TGCGCAGCAGGTCGTC",
+  "ACTTGTTAGGACCACA",
+  "CCATTCGTCCCTGACT")
+```
 Oligos from 10x rep:
 
 5' P5-R1-Barcode: AATGATACGGCGACCACCGAGATCT-ACACTCTTTCCCTACACGACGCTCTTCCGATCT-NNNNNNNNNNNNNNNN 
