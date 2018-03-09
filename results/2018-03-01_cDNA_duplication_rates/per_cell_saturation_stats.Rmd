@@ -640,12 +640,12 @@ plt <- ggplot(dat,
 save_plot("tsne.pdf", plt, base_height = 6)
 ```
 
-Lastly, reannotate which cells are mouse or human
+Lastly, double check the hamming distances to nearest barcodes
 
 ```{r}
 library(kentr)
 
-# load in all barcode data
+# load in all the barcode data
 
 bcs <- load_dat("20180215_kirkpatrick/C2", "GRCh38")
 bcs <- bcs %>%
@@ -658,20 +658,21 @@ bcs <- bcs %>%
   mutate(bc_rank = row_number(),
          lib_prop = total_umis / sum(total_umis))
 
-# Decode the barcode slow!
-all_seqs <- mutate(bcs, seqs = decompress_sequences(barcode, 16))
+# Decode the int64 barcode
+all_seqs <- mutate(bcs, 
+                   seqs = decompress_sequences(barcode, 16))
 
 # calc all pairwise hamming distances and generate logical matrix indicating which
-# sequences are equal to the minimum  discovered hamming dist. Slow, 1-2 minutes
+# barcodes are equal to the minimum discovered hamming dist. 
 
 map(selected_dat$seqs, 
     ~kentr::get_hamming(.x, all_seqs$seqs)) %>%  
   map(~min(.x[.x > 0]) == .x) -> min_hamming_match
 
-# find the indexes within the original barcode data that are equal to two
+# find the indexes within the original barcode data that are equal to minimum hamming
 hdist_idxs <- map(min_hamming_match, ~which(.x))
 
-# get barcode with highest total-read count with hamming dist 2
+# get barcode with highest total-umicount with minimum hamming distance
 best_match_bc <- map_df(hdist_idxs, ~all_seqs[.x, ] 
                      %>% arrange(desc(total_umis)) 
                      %>% slice(1))
@@ -684,8 +685,9 @@ best_match_bc <- dplyr::rename(best_match_bc,
                                nearest_lib_prop = lib_prop,
                                nearest_barcode_rank = bc_rank
                                ) %>% select(-barcode)
+
 selected_dat <- left_join(selected_dat, all_seqs) %>% select(-barcode)
-#append to original data, row order is the same
+
 filtered <- bind_cols(selected_dat, best_match_bc)
 
 #add in hamming dists 
