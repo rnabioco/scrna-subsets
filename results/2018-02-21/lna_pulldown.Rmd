@@ -1,7 +1,7 @@
 ---
 title: "Lna pull down analysis"
 author: "Kent Riemondy RBI"
-date: "`R Sys.Date()`"
+date: '`R Sys.Date()`'
 output:
   html_document:
     toc: true
@@ -24,6 +24,7 @@ knitr::opts_chunk$set(message = FALSE)
 
 ```{r, message=F, warning=F, echo=F}
 source("../../R/globals.R")
+color_palette = c("#bdbdbd", "#1F78B4")
 ```
 
 ## Organize single cell libraries
@@ -232,14 +233,14 @@ ggplot(sc_metadat, aes(total_reads, cDNA_duplication)) +
   labs(x = expression(paste("Read count (log"[10],")")),
        y = "Sequencing saturation") + 
   scale_x_log10() +
-  scale_color_viridis(discrete = T) +
+  scale_color_manual(values = color_palette) +
   facet_wrap(~library)
 ```
 
 ## plot read and umi counts per library
 
 ```{r plot_read_and_umi_counts}
-color_palette = c("#1F78B4", "#bdbdbd")
+
 
 global_plot_theme <- theme(
         legend.position = "top",
@@ -344,7 +345,7 @@ plt <- plot_grid(read, umi,
                  align = 'hv')
 plt
 
-ggsave("reads_umi_ratio_per_barcode_normalized.pdf", width = 6.25, height = 5)
+ggsave("reads_umi_ratio_per_barcode_normalized.pdf", width = 8, height = 5)
 
 
 umi <- ggplot(filter(subsampled_metadat, library == "lna_pulldown"), 
@@ -839,13 +840,24 @@ genes_recovered <- subsampled_metadat %>%
 genes_recovered <- gather(genes_recovered, 
                           key = type, value = count, 
                           -cell_id, -subsampled, -library)
-ggplot(genes_recovered, 
+genes_recovered <- mutate(genes_recovered,
+                          type = str_replace_all(type, "_", "\n"))
+
+plt <- ggplot(genes_recovered, 
        aes(cell_id, count)) +
   geom_point(aes(color = subsampled),
-             size = 0.5) +
+             size = 0.6,
+             alpha = 0.75) +
   facet_grid(type ~ library) +
-  theme(axis.text.x = element_blank()) +
-  scale_color_viridis(discrete = T)
+  theme(axis.text.x = element_blank(),
+        axis.title.x = element_blank(),
+        strip.text.y = element_text(size = 12,
+                                    margin = margin(0,0.2,0,0.2, "cm"))) +
+  scale_color_manual(values = color_palette)
+
+plt 
+
+save_plot("new_genes_detected.pdf", plt, base_width = 8, base_height = 8)
 
 genes_recovered %>% 
   dplyr::filter(library == "lna_pulldown",
