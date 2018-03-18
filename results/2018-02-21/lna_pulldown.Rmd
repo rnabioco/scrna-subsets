@@ -85,6 +85,29 @@ read_dat <- map(read_dat, function(x){
                        x
                      })
 
+## add in all missing gene features to dge_matrix and make colnames and rows match (for easy comparison)
+umi_dat <- map2(umi_dat, read_dat, 
+          function(x, y){
+            genes_to_add <- y$gene[!y$gene %in% x$gene]
+            ycols <- ncol(y)
+            xcols <- ncol(x)
+            if(xcols != ycols){
+              stop("check ncols")
+            }
+            x <- x[, colnames(y)]
+            zeros <- matrix(rep(0L, length(genes_to_add) * (xcols - 1)),
+                            nrow = length(genes_to_add))
+            zero_df <- as_data_frame(zeros) %>% 
+              mutate(gene = genes_to_add) %>% 
+              dplyr::select(gene, everything())
+            colnames(zero_df) <- colnames(x)
+            x <- bind_rows(x, zero_df)
+            x <- x[rownames(y), ]
+            if(!all(rownames(x) == rownames(y))){
+              stop("check new rownames")
+            }
+            x
+          })
 
 cell_obj_mdata <- map(cells, 
                       ~mutate(bc_metadat, 
@@ -94,7 +117,7 @@ cell_obj_mdata <- map(cells,
 
 ```
 
-Next organize these tables into simple classes called `subsampled-sets` to keep track of each experiments relavant raw, processed, and meta data. 
+Next organize these tables into simple classes called `subsampled-sets` to keep track of each experiment's relavant raw, processed, and meta data. 
 
 ```{r s3ify}
 #' simple class to hold info for each experiment
@@ -111,6 +134,9 @@ create_sc_obj <- function(umi_df,
 
 sc_objs <- list(umi_dat, read_dat, cell_obj_mdata)
 sc_objs <- pmap(sc_objs, create_sc_obj)
+
+rm(umi_dat)
+rm(read_dat)
 ```
 
 Next perform basic processing. 
@@ -862,4 +888,53 @@ save_plot("new_genes_detected.pdf", plt, base_width = 8, base_height = 8)
 genes_recovered %>% 
   dplyr::filter(library == "lna_pulldown",
                 subsampled)
+```
+
+## Plot expression per cell
+
+```{r ma_per_cell}
+
+calc_ma <- function(xmat, ymat, cell = "GCAGTTAAGTGTCCAT"){
+  xmat <- log2(xmat + 1)
+  ymat <- log2(ymat + 1)
+  m <- rowMeans((xmat + ymat) / 2)
+  a <- xmat[, cell] - ymat[, cell]
+  data_frame(gene = names(a),
+             mean_expression_log2 = m,
+             log2_diff = a)
+}
+ma_dat <- map(unique(unlist(cells)),
+    ~calc_ma(sc_objs$lna_pulldown$norm_umi, 
+             sc_objs$original_10x$norm_umi,
+             cell = .x))
+
+ma_dat <- map(ma_dat,
+              ~dplyr::filter(.x, mean_expression_log2 != 0))
+
+names(ma_dat) <- unique(unlist(cells))
+
+ma_dat <- bind_rows(ma_dat, .id = "cell")
+
+n_up <- filter(ma_dat, log2_diff > 0) %>% 
+  group_by(cell) %>% 
+  summarize(n = n(), n = paste0("increased = ", n))
+
+n_down <- filter(ma_dat, log2_diff < 0) %>% 
+  group_by(cell) %>% 
+  summarize(n = n(), n = paste0("decreased = ", n))
+
+ggplot(ma_dat,
+       aes(mean_expression_log2,
+           log2_diff)) +
+  geom_point(size = 0.25) +
+  geom_text(data = n_up, aes(x = 0.5, 
+                             y = max(ma_dat$log2_diff) * 1.2, 
+                             label = n)) +
+  geom_text(data = n_down, aes(x = 0.5, 
+                               y = min(ma_dat$log2_diff) * 1.2, 
+                               label = n)) + 
+  facet_wrap(~cell) +
+  labs(x = expression(paste("Abundance (log"[2], ")")),
+       y = expression(paste(frac("Subsampled","Original"), " (log"[2], ")")))
+
 ```
