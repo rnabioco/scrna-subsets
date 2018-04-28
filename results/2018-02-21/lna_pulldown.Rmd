@@ -389,6 +389,24 @@ umi <- ggplot(filter(subsampled_metadat, library == "lna_pulldown"),
 umi <- ggplot(filter(subsampled_metadat, library == "lna_pulldown"), 
        aes(og_total_umis, norm_read_proportion, colour = subsampled)) + 
   geom_point() + 
+  geom_hline(aes(yintercept = 0), 
+             linetype = "dashed",
+             color = "grey") + 
+  labs(x = "Total UMIs per barcode", 
+       y = expression(paste( "Log"[2], " UMIs ", frac("subsampled", "original")))) +
+  scale_colour_manual(name = "subsampled:", 
+                      values = color_palette) +
+  facet_wrap(~library, nrow = 1) + 
+  theme_cowplot(font_size = 16, line_size = 1) +
+  theme(legend.position = "top",
+        legend.text = element_text(size = 12))
+
+ggsave("umi_ratio_MA_normalized.pdf", umi, width =5, height = 5)
+
+
+umi <- ggplot(filter(subsampled_metadat, library == "lna_pulldown"), 
+       aes(og_total_umis, umi_proportion, colour = subsampled)) + 
+  geom_point() + 
   labs(x = "Total UMIs per barcode", 
        y = expression(paste( "Log"[2], " UMIs ", frac("subsampled", "original")))) +
   scale_colour_manual(name = "subsampled:", values = color_palette) +
@@ -397,7 +415,7 @@ umi <- ggplot(filter(subsampled_metadat, library == "lna_pulldown"),
   theme(legend.position = "top",
         legend.text = element_text(size = 12))
 
-ggsave("umi_ratio_MA_normalized.pdf", umi, width =5, height = 5)
+ggsave("umi_ratio_MA.pdf", umi, width =5, height = 5)
 ```
 
   
@@ -643,6 +661,21 @@ ggplot(subsampled_metadat, aes(human_reads / 1e3, mouse_reads / 1e3,
         legend.text = element_text(size = 12))
 ggsave("reads_scatterplot_human_mouse.pdf", width = 14, height = 7)
 
+plt <- ggplot(filter(subsampled_metadat, 
+                             library == "original_10x") %>% 
+                arrange(subsampled),
+       aes(og_human_reads, og_mouse_reads, 
+                               colour = subsampled)) +
+  geom_point(size = 1.5) + 
+  xlab("Human UMIs") +
+  ylab("Mouse UMIs") +
+  scale_colour_manual(name = "subsampled:",
+                      values = color_palette) +
+  theme_cowplot(font_size = 16, line_size = 1) +
+  theme(legend.position = "top",
+        legend.text = element_text(size = 12))
+ggsave("umi_scatterplot_human_mouse.pdf", plt, width = 5.5, height = 5.5)
+
 subsampled_metadat <- filter(subsampled_metadat, 
                              library != "original_10x")
 
@@ -830,14 +863,40 @@ sc_objs <- map(sc_objs,
 ## add gene recovery info to meta data table
 sc_objs <- map(sc_objs, 
            function(x){
-             gene_mdata <- map(x$shared_genes, length)
-             gene_mdata <- data_frame(cell_id = names(gene_mdata),
-                                      shared_genes = unname(unlist(gene_mdata)))
-             gene_mdata <- mutate(gene_mdata,
-                                  not_recovered_genes = map_int(x$not_recovered_genes,
-                                                                length),
-                                  new_genes = map_int(x$new_genes, 
-                                                      length))
+             shared_genes <- map2_dfr(x$shared_genes, 
+                                names(x$shared_genes),
+                                function(x, y){
+                                  mouse <- sum(str_detect(x, "^mm38::")) ;
+                                  human <- sum(str_detect(x, "^hg38::")) ;
+                                  data_frame(cell_id = y,
+                                            mouse_shared_genes = mouse,
+                                            human_shared_genes = human)
+                                 })
+             
+             not_recovered_genes <- map2_dfr(x$not_recovered_genes, 
+                                names(x$not_recovered_genes),
+                                function(x, y){
+                                  mouse <- sum(str_detect(x, "^mm38::")) ;
+                                  human <- sum(str_detect(x, "^hg38::")) ;
+                                  data_frame(cell_id = y,
+                                            mouse_not_recovered_genes = mouse,
+                                            human_not_recovered_genes = human)
+                                 })
+             
+             new_genes <- map2_dfr(x$new_genes, 
+                                names(x$new_genes),
+                                function(x, y){
+                                  mouse <- sum(str_detect(x, "^mm38::")) ;
+                                  human <- sum(str_detect(x, "^hg38::")) ;
+                                  data_frame(cell_id = y,
+                                            mouse_new_genes = mouse,
+                                            human_new_genes = human)
+                                 })
+             gene_mdata <- left_join(shared_genes,
+                                     not_recovered_genes,
+                                     by = "cell_id") %>% 
+               left_join(., new_genes, by = "cell_id")
+             
              x <- add_metadata(x, gene_mdata)
              x
            })
@@ -885,11 +944,196 @@ plt
 
 save_plot("new_genes_detected.pdf", plt, base_width = 8, base_height = 8)
 
-genes_recovered %>% 
+targeted <- genes_recovered %>% 
   dplyr::filter(library == "lna_pulldown",
-                subsampled)
+                subsampled) 
+targeted
+
+plt_dat <- genes_recovered %>% 
+  dplyr::filter(library != "lna_pulldown",
+                subsampled) %>% 
+  group_by(type) %>% 
+  summarize(count = mean(count)) %>% 
+  mutate(cell_id = "Not Targeted Barcodes") %>% 
+  bind_rows(targeted, .) %>% 
+  filter(type == "new\ngenes")
+
+
+plt <- ggplot(plt_dat, 
+       aes(cell_id, count)) +
+  geom_bar(aes(fill = cell_id),
+           stat = "identity") +
+  labs(y = "Newly detected genes") + 
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 45,
+                                   hjust = 1),
+        legend.position = "none") +
+  scale_fill_brewer(palette = "Set1")
+
+save_plot("new_genes_barplot.pdf", plt, 
+          base_width = 3.6, base_height = 5)
+
+
+## species specific
+
+genes_recovered <- subsampled_metadat %>% 
+     dplyr::filter(library == "lna_pulldown") %>% 
+     select(cell_id, subsampled, purity_umis, ends_with("genes")) %>% 
+  mutate(species = ifelse(purity_umis > 0.80,
+                          "human",
+                          ifelse(purity_umis < 0.20, 
+                                 "mouse",
+                                 "mixed"))) %>% 
+  filter(species != "mixed") %>% 
+  mutate(shared_genes_species = ifelse(species == "human",
+                                          human_shared_genes,
+                                          mouse_shared_genes),
+         new_genes_species = ifelse(species == "human",
+                                    human_new_genes,
+                                    mouse_new_genes),
+         not_recovered_genes_species = ifelse(species == "human",
+                                              human_not_recovered_genes,
+                                              mouse_not_recovered_genes)) %>% 
+  select(cell_id, subsampled, ends_with("_species")) %>% 
+  gather(key = type, value = count, 
+         -cell_id, -subsampled) %>% 
+   mutate(type = str_replace(type, "_species", "") %>% 
+            str_replace_all(., "_", "\n"))
+
+targeted <- genes_recovered %>% 
+  dplyr::filter(subsampled) 
+
+plt_dat <- genes_recovered %>% 
+  dplyr::filter(!subsampled) %>% 
+  group_by(type) %>% 
+  summarize(count = mean(count)) %>% 
+  mutate(cell_id = "Not Targeted Barcodes") %>% 
+  bind_rows(targeted, .) %>% 
+  filter(type == "new\ngenes")
+
+
+plt <- ggplot(plt_dat, 
+       aes(cell_id, count)) +
+  geom_bar(aes(fill = cell_id),
+           stat = "identity") +
+  labs(y = "Newly detected genes") + 
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 45,
+                                   hjust = 1),
+        legend.position = "none") +
+  scale_fill_brewer(palette = "Set1")
+
+save_plot("new_genes_species_specific_barplot.pdf", plt, 
+          base_width = 3.6, base_height = 5) 
 ```
 
+```{r read_umi_seqs, eval = F}
+#add_umi_seqs <- function(sc_obj, 
+#                         path_to_molecules, 
+#                         barcodes = c("GACGTTAGTGCCTGTG-1",
+#                                      "CTGATCCCATGACGGA-1")) {
+                           
+umi_files <- file.path(data_dir, libs, "umis", "umigroups.txt.gz")
+## parse umi seqs into named list and pass to sc_obj
+## umi seqs should be produced by ./get_molecule_info
+og_umi_seqs <- read_tsv(umi_files[1],
+                   col_names = c("barcode_10x", 
+                                 "umi_molecule", 
+                                 "count")) %>% 
+  filter(barcode_10x != "Cell_unmatched")
+
+ctrl_umi_seqs <- read_tsv(umi_files[2],
+                   col_names = c("barcode_10x", 
+                                 "umi_molecule", 
+                                 "count")) %>% 
+  filter(barcode_10x != "Cell_unmatched")
+
+pd_umi_seqs <- read_tsv(umi_files[3],
+                   col_names = c("barcode_10x", 
+                                 "umi_molecule", 
+                                 "count")) %>% 
+  filter(barcode_10x != "Cell_unmatched")
+tmp <- full_join(og_umi_seqs, 
+          ctrl_umi_seqs, by = c("barcode_10x", "umi_molecule"))
+  
+ctrl_res <- tmp %>% 
+  mutate(new_umi = ifelse(is.na(count.x) & !is.na(count.y), 
+                          1L, 
+                          0L),
+         not_detected_umi = ifelse(!is.na(count.x) & is.na(count.y),
+                                   1L,
+                                   0L),
+         shared_umi = ifelse(!is.na(count.x) & !is.na(count.y),
+                             1L,
+                             0L)) %>% 
+  group_by(barcode_10x) %>% 
+  summarize(new_umis = sum(new_umi),
+            not_detected_umis = sum(not_detected_umi),
+            shared_umis = sum(shared_umi))
+
+tmp <- full_join(og_umi_seqs, 
+          pd_umi_seqs, by = c("barcode_10x", "umi_molecule"))
+  
+pd_res <- tmp %>% 
+  mutate(new_umi = ifelse(is.na(count.x) & !is.na(count.y), 
+                          1L, 
+                          0L),
+         not_detected_umi = ifelse(!is.na(count.x) & is.na(count.y),
+                                   1L,
+                                   0L),
+         shared_umi = ifelse(!is.na(count.x) & !is.na(count.y),
+                             1L,
+                             0L)) %>% 
+  group_by(barcode_10x) %>% 
+  summarize(new_umis = sum(new_umi),
+            not_detected_umis = sum(not_detected_umi),
+            shared_umis = sum(shared_umi))
+  
+rm(tmp)
+
+umis_recovered <- inner_join(ctrl_res, 
+                             pd_res, 
+                             by = "barcode_10x",
+                             suffix = c("::control", "::pulldown"))
+
+umis_recovered <- umis_recovered %>% 
+  gather(type, count, -barcode_10x) %>% 
+  separate(type, c("class", "library"), sep = "::")
+
+plt <- ggplot(umis_recovered, 
+       aes(barcode_10x, count)) +
+  geom_point(size = 0.6,
+             alpha = 0.75) +
+  facet_grid(class~ library) +
+  theme(axis.text.x = element_blank(),
+        axis.title.x = element_blank(),
+        strip.text.y = element_text(size = 12,
+                                    margin = margin(0,0.2,0,0.2, "cm"))) +
+  scale_color_manual(values = color_palette)
+
+plt 
+
+
+
+filter(tmp, 
+       barcode_10x %in% paste0(unique(unlist(cells)), "-1"), 
+       !is.na(count.y), 
+       is.na(count.x))  %>% 
+  separate(umi_molecule, c("seq", "genome", "gene"), sep = "::") -> new_umis
+
+filter(tmp, 
+       barcode_10x %in% paste0(unique(unlist(cells)), "-1"), 
+       !is.na(count.x)) %>% 
+  separate(umi_molecule, c("seq", "genome", "gene"), sep = "::") -> old_umis
+a <- left_join(new_umis, old_umis, by = c("barcode_10x", "genome", "gene")) 
+a %>% 
+  mutate(ed = kentr::get_hamming_pairs(seq.x, seq.y)) %>% 
+  group_by(barcode_10x, seq.y, genome, gene) %>% 
+  summarize(min_ed = min(ed)) %>% 
+  ungroup() %>% 
+  ggplot(., aes(barcode_10x, min_ed)) + geom_boxplot()
+
+```
 ## Plot expression per cell
 
 ```{r ma_per_cell}
