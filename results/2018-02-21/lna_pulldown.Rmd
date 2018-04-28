@@ -870,7 +870,8 @@ sc_objs <- map(sc_objs,
                                   human <- sum(str_detect(x, "^hg38::")) ;
                                   data_frame(cell_id = y,
                                             mouse_shared_genes = mouse,
-                                            human_shared_genes = human)
+                                            human_shared_genes = human,
+                                            shared_genes = mouse + human)
                                  })
              
              not_recovered_genes <- map2_dfr(x$not_recovered_genes, 
@@ -880,7 +881,8 @@ sc_objs <- map(sc_objs,
                                   human <- sum(str_detect(x, "^hg38::")) ;
                                   data_frame(cell_id = y,
                                             mouse_not_recovered_genes = mouse,
-                                            human_not_recovered_genes = human)
+                                            human_not_recovered_genes = human,
+                                            not_recovered_genes = mouse + human)
                                  })
              
              new_genes <- map2_dfr(x$new_genes, 
@@ -890,7 +892,8 @@ sc_objs <- map(sc_objs,
                                   human <- sum(str_detect(x, "^hg38::")) ;
                                   data_frame(cell_id = y,
                                             mouse_new_genes = mouse,
-                                            human_new_genes = human)
+                                            human_new_genes = human,
+                                            new_genes = mouse + human)
                                  })
              gene_mdata <- left_join(shared_genes,
                                      not_recovered_genes,
@@ -978,10 +981,10 @@ save_plot("new_genes_barplot.pdf", plt,
 
 genes_recovered <- subsampled_metadat %>% 
      dplyr::filter(library == "lna_pulldown") %>% 
-     select(cell_id, subsampled, purity_umis, ends_with("genes")) %>% 
-  mutate(species = ifelse(purity_umis > 0.80,
+     select(cell_id, subsampled, purity_reads, ends_with("genes")) %>% 
+  mutate(species = ifelse(purity_reads > 0.80,
                           "human",
-                          ifelse(purity_umis < 0.20, 
+                          ifelse(purity_reads < 0.20, 
                                  "mouse",
                                  "mixed"))) %>% 
   filter(species != "mixed") %>% 

@@ -1,5 +1,5 @@
 ---
-title: "Lna pull down analysis"
+title: "PCR enrichment analysis"
 author: "Kent Riemondy RBI"
 date: '`R Sys.Date()`'
 output:
@@ -14,7 +14,7 @@ output:
     df_print: paged
 ---
 
-## Examine Lna pulldown data
+## Examine PCR enrichment data
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -838,17 +838,47 @@ sc_objs <- map(sc_objs,
 ## add gene recovery info to meta data table
 sc_objs <- map(sc_objs, 
            function(x){
-             gene_mdata <- map(x$shared_genes, length)
-             gene_mdata <- data_frame(cell_id = names(gene_mdata),
-                                      shared_genes = unname(unlist(gene_mdata)))
-             gene_mdata <- mutate(gene_mdata,
-                                  not_recovered_genes = map_int(x$not_recovered_genes,
-                                                                length),
-                                  new_genes = map_int(x$new_genes, 
-                                                      length))
+             shared_genes <- map2_dfr(x$shared_genes, 
+                                names(x$shared_genes),
+                                function(x, y){
+                                  mouse <- sum(str_detect(x, "^mm38::")) ;
+                                  human <- sum(str_detect(x, "^hg38::")) ;
+                                  data_frame(cell_id = y,
+                                            mouse_shared_genes = mouse,
+                                            human_shared_genes = human,
+                                            shared_genes = mouse + human)
+                                 })
+             
+             not_recovered_genes <- map2_dfr(x$not_recovered_genes, 
+                                names(x$not_recovered_genes),
+                                function(x, y){
+                                  mouse <- sum(str_detect(x, "^mm38::")) ;
+                                  human <- sum(str_detect(x, "^hg38::")) ;
+                                  data_frame(cell_id = y,
+                                            mouse_not_recovered_genes = mouse,
+                                            human_not_recovered_genes = human,
+                                            not_recovered_genes = mouse + human)
+                                 })
+             
+             new_genes <- map2_dfr(x$new_genes, 
+                                names(x$new_genes),
+                                function(x, y){
+                                  mouse <- sum(str_detect(x, "^mm38::")) ;
+                                  human <- sum(str_detect(x, "^hg38::")) ;
+                                  data_frame(cell_id = y,
+                                            mouse_new_genes = mouse,
+                                            human_new_genes = human,
+                                            new_genes = mouse + human)
+                                 })
+             gene_mdata <- left_join(shared_genes,
+                                     not_recovered_genes,
+                                     by = "cell_id") %>% 
+               left_join(., new_genes, by = "cell_id")
+             
              x <- add_metadata(x, gene_mdata)
              x
            })
+
 
 subsampled_metadat <- map(sc_objs, ~.x$meta_dat) %>% 
   bind_rows(.id = "library") %>% 
@@ -894,10 +924,89 @@ plt
 
 save_plot("new_genes_detected.pdf", plt, base_width = 8, base_height = 8)
 
-genes_recovered %>% 
-  dplyr::filter(library == "phosporothioate",
-                subsampled)
+targeted <- genes_recovered %>% 
+  dplyr::filter(library == "phosphorothioate",
+                subsampled) 
+targeted
+
+plt_dat <- genes_recovered %>% 
+  dplyr::filter(library != "phosphorothioate",
+                subsampled) %>% 
+  group_by(type) %>% 
+  summarize(count = mean(count)) %>% 
+  mutate(cell_id = "Not Targeted Barcodes") %>% 
+  bind_rows(targeted, .) %>% 
+  filter(type == "new\ngenes")
+
+
+plt <- ggplot(plt_dat, 
+       aes(cell_id, count)) +
+  geom_bar(aes(fill = cell_id),
+           stat = "identity") +
+  labs(y = "Newly detected genes") + 
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 45,
+                                   hjust = 1),
+        legend.position = "none") +
+  scale_fill_brewer(palette = "Set1")
+
+save_plot("new_genes_barplot.pdf", plt, 
+          base_width = 3.6, base_height = 5)
+
+
+## species specific
+
+genes_recovered <- subsampled_metadat %>% 
+     dplyr::filter(library == "phosphorothioate") %>% 
+     select(cell_id, subsampled, purity_reads, ends_with("genes")) %>% 
+  mutate(species = ifelse(purity_reads > 0.80,
+                          "human",
+                          ifelse(purity_reads < 0.20, 
+                                 "mouse",
+                                 "mixed"))) %>% 
+  filter(species != "mixed") %>% 
+  mutate(shared_genes_species = ifelse(species == "human",
+                                          human_shared_genes,
+                                          mouse_shared_genes),
+         new_genes_species = ifelse(species == "human",
+                                    human_new_genes,
+                                    mouse_new_genes),
+         not_recovered_genes_species = ifelse(species == "human",
+                                              human_not_recovered_genes,
+                                              mouse_not_recovered_genes)) %>% 
+  select(cell_id, subsampled, ends_with("_species")) %>% 
+  gather(key = type, value = count, 
+         -cell_id, -subsampled) %>% 
+   mutate(type = str_replace(type, "_species", "") %>% 
+            str_replace_all(., "_", "\n"))
+
+targeted <- genes_recovered %>% 
+  dplyr::filter(subsampled) 
+
+plt_dat <- genes_recovered %>% 
+  dplyr::filter(!subsampled) %>% 
+  group_by(type) %>% 
+  summarize(count = mean(count)) %>% 
+  mutate(cell_id = "Not Targeted Barcodes") %>% 
+  bind_rows(targeted, .) %>% 
+  filter(type == "new\ngenes")
+
+
+plt <- ggplot(plt_dat, 
+       aes(cell_id, count)) +
+  geom_bar(aes(fill = cell_id),
+           stat = "identity") +
+  labs(y = "Newly detected genes") + 
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 45,
+                                   hjust = 1),
+        legend.position = "none") +
+  scale_fill_brewer(palette = "Set1")
+
+save_plot("new_genes_species_specific_barplot.pdf", plt, 
+          base_width = 3.6, base_height = 5) 
 ```
+
 
 ```{r read_umi_seqs, eval = F}
 #add_umi_seqs <- function(sc_obj, 

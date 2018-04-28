@@ -290,6 +290,7 @@ ggplot(sc_metadat, aes(total_reads, cDNA_duplication)) +
   facet_wrap(~library)
 ```
 
+
 ## plot read and umi counts per library
 
 ```{r plot_read_and_umi_counts}
@@ -645,7 +646,7 @@ ggplot(subsampled_metadat, aes(human_reads / 1e6, mouse_reads / 1e6,
                                colour = subsampled)) +
   geom_point(size = 0.5) + 
   coord_fixed() + 
-  facet_wrap(~library, nrow = 2, scales = "free") + 
+  facet_wrap(~library, nrow = 2) + 
   xlab("Human reads (Millions)") +
   ylab("Mouse reads (Millions)") +
   scale_colour_manual(name = "subsampled:",
@@ -752,7 +753,7 @@ get_gene_summary <- function(new_dat, old_dat, libs, original) {
   res <- bind_data_calc_fc(sub_sampled_genes, og_sub_sampled_genes)
   res
 }
-
+### FIX HERE ###
 human_gene_dat <- map(gene_dat, ~.x[grepl("^hg38_", rownames(.x)), ])
 og_human_gene_dat <- og_gene_dat[grepl("^hg38_", rownames(og_gene_dat)), ]
 
@@ -880,6 +881,9 @@ ggplot(mouse_resampled, aes(cell, gene_count, fill = gene_origin)) +
 
 ggsave("genes_per_cell_barplot_human.pdf", width = 6, height = 5)
 ```
+
+
+
 # redo next section with 
 ```{r compare_genesets_all, cache=FALSE}
 library(dplyr)
@@ -1147,9 +1151,19 @@ ggsave("count_of_genes_mouseonly.pdf", width = 7, height = 7)
 
 ```
 
+## Original tSNE
+
+```{r tSNE_og}
+library(Seurat)
+seurat_obj <- CreateSeuratObject(sc_objs$original$umi_matrix, project = "og", 
+                                 min.genes = 1, min.cells = 1, names.delim = "_", names.field = 2)
+seurat_obj <- NormalizeData(seurat_obj)
+seurat_obj <- FindVariableGenes(seurat_obj)
+```
+
 ## Compare correlation coefficiencts
 
-```{r}
+```{r, eval = F}
 #### annotate selected cells
 
 
