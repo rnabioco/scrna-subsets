@@ -389,7 +389,7 @@ umi_plots <- map(split(subsampled_metadat, subsampled_metadat$library),
        aes(og_total_umis, norm_umi_proportion, colour = subsampled)) + 
   geom_point() + 
   geom_hline(aes(yintercept = 0), linetype ="dashed", color = "darkgrey") + 
-  labs(x = "Total UMIs per barcode", 
+  labs(x = "Abundance in original library\n (UMIs)", 
        y = expression(paste( "Log"[2], " UMIs ", frac("subsampled", "original")))) +
   scale_colour_manual(name = "subsampled:", values = color_palette) +
  # facet_wrap(~library, nrow = 1) + 
@@ -1176,7 +1176,7 @@ ggplot(ma_dat,
 
 ## Original Expt
 
-### tSNE
+### original library tSNE
 ```{r tsne}
 library(Seurat)
 
@@ -1220,7 +1220,151 @@ plt <- TSNEPlot(sobj, colors.use = brewer.pal(7, "Set1")) +
 save_plot("original_tsne.pdf", plt, base_height = 4.25, base_width = 4.25)
 ```
 
+### original library tSNE supplemented with resampled barcodes
+```{r tsne}
+mat <- sc_objs$original$umi_matrix
+human_cell_ids <- sc_objs$original$meta_dat %>% 
+ # filter(!subsampled) %>% 
+  filter(str_detect(cell_id, "1Tumor|2LukGFP|3Brain|4Bone"),
+         !str_detect(cell_id, "2LukGFPDead")) %>% 
+  pull(cell_id)
 
+mat <- mat[, human_cell_ids]
+
+subsampled_ids <- sc_objs$phosphorothioate$meta_dat %>% 
+  filter(!subsampled) %>% 
+  pull(cell_id)
+
+sobj <- CreateSeuratObject(mat, names.field = 2, names.delim = "_")
+
+new_ids <- sobj@meta.data %>% 
+  rownames_to_column("cell") %>% 
+  mutate(new_id = str_sub(orig.ident, 2),
+         new_id = ifelse(new_id == "LukGFP",
+                         "Primary\ncells",
+                         new_id),
+         new_id = ifelse(new_id == "Tumor",
+                         "Primary\ntumor",
+                         new_id)) %>% 
+  select(cell, new_id) %>% 
+  as.data.frame(.) %>% 
+  column_to_rownames("cell")
+
+sobj <- AddMetaData(sobj, new_ids)
+
+mdata_og <- sc_objs$phosphorothioate$meta_dat %>% 
+  filter(cell_id %in% rownames(sobj@meta.data)) %>% 
+  as.data.frame() %>% 
+  column_to_rownames("cell_id")
+
+sobj <- AddMetaData(sobj, mdata_og)
+sobj <- SetAllIdent(sobj, "new_id")
+sobj <- NormalizeData(sobj)
+sobj <- ScaleData(sobj, vars.to.regress = "nUMI")
+sobj <- FindVariableGenes(sobj)
+sobj <- RunPCA(sobj, pc.genes = rownames(sobj@data), pcs.compute = 5)
+sobj <- RunTSNE(sobj, dims.use = 1:5, seed.use = 20180427)
+
+tsne_plt <- TSNEPlot(sobj, colors.use = brewer.pal(7, "Set1")) + 
+  labs(title = "Breast Cancer PDX") +
+  theme(legend.position = "bottom")
+
+purity_plt <- FeaturePlot(sobj, 
+                        features.plot = "og_purity_reads",
+                        no.legend = F, do.return = T) 
+
+subsampled_cells <- TSNEPlot(SetAllIdent(sobj, 
+                                         "subsampled"), 
+                             colors.use = brewer.pal(7, "Set1")) + 
+  labs(title = "Breast Cancer PDX") +
+  theme(legend.position = "bottom")
+
+plt <- plot_grid(tsne_plt, purity_plt[[1]], subsampled_cells,
+                 nrow = 3, rel_widths = c(1, 1.5, 1))
+
+save_plot("original_tsne_mouse_and_human.pdf", plt, 
+          nrow = 3, ncol = 1,
+          base_height = 4.25, base_width = 4.25)
+
+###
+
+mat <- sc_objs$original$umi_matrix
+human_cell_ids <- sc_objs$original$meta_dat %>% 
+  filter(str_detect(cell_id, "1Tumor|2LukGFP|3Brain|4Bone"),
+         !str_detect(cell_id, "2LukGFPDead")) %>% 
+  pull(cell_id)
+
+mat <- mat[, human_cell_ids]
+
+subsampled_ids <- sc_objs$phosphorothioate$meta_dat %>% 
+  filter(subsampled) %>% 
+  pull(cell_id)
+
+subsampled_mat <- sc_objs$phosphorothioate$umi_matrix[, subsampled_ids]
+colnames(subsampled_mat) <- str_c(colnames(subsampled_mat), "::", "subsampled")
+
+mat <- as.data.frame(as.matrix(mat)) %>% rownames_to_column("cell")
+subsampled_mat <- as.data.frame(as.matrix(subsampled_mat)) %>% rownames_to_column("cell")
+combined_mats <- left_join(mat, subsampled_mat, by = c("cell")) 
+combined_mats <- as.data.frame(combined_mats) %>% 
+  column_to_rownames("cell") %>% 
+  as.matrix() %>% 
+  as(., "sparseMatrix")   
+
+combined_mats[is.na(combined_mats)] <- 0
+
+sobj <- CreateSeuratObject(combined_mats, names.field = 2, names.delim = "_")
+
+new_ids <- sobj@meta.data %>% 
+  rownames_to_column("cell") %>% 
+  mutate(new_id = str_sub(orig.ident, 2),
+         new_id = ifelse(str_detect(new_id, "LukGFP"),
+                         "Primary\ncells",
+                         new_id),
+         new_id = ifelse(str_detect(new_id, "Tumor"),
+                         "Primary\ntumor",
+                         new_id),
+         subsampled = ifelse(str_detect(cell, "subsampled"),
+                             "subsampled",
+                             "not subsampled"))
+
+subsampled_cell_ids <- new_ids[new_ids$subsampled == "subsampled", "cell"] %>% 
+  str_replace("::subsampled", "")
+  
+new_ids <- mutate(new_ids, 
+                  subsampled = ifelse(cell %in% subsampled_cell_ids, 
+                                      "original cell",
+                                      subsampled)) %>% 
+  select(cell, new_id, subsampled) %>% 
+  as.data.frame(.) %>% 
+  column_to_rownames("cell")
+
+sobj <- AddMetaData(sobj, new_ids)
+sobj <- SetAllIdent(sobj, "new_id")
+sobj <- NormalizeData(sobj)
+sobj <- ScaleData(sobj, vars.to.regress = "nUMI")
+sobj <- FindVariableGenes(sobj)
+sobj <- RunPCA(sobj, pc.genes = rownames(sobj@data), pcs.compute = 5)
+sobj <- RunTSNE(sobj, dims.use = 1:5, seed.use = 20180502)
+
+tsne_plt <- TSNEPlot(sobj, colors.use = brewer.pal(7, "Set1")) + 
+  labs(title = "Breast Cancer PDX") +
+  theme(legend.position = "bottom")
+
+subsampled_cells <- TSNEPlot(SetAllIdent(sobj, 
+                                         "subsampled"), 
+                             colors.use = c("lightgrey",
+                                            brewer.pal(7, "Set1")[1:2])) + 
+  labs(title = "Breast Cancer PDX") +
+  theme(legend.position = "bottom")
+
+plt <- plot_grid(tsne_plt, subsampled_cells,
+                 nrow = 2)
+
+save_plot("resampled_tsne.pdf", plt, 
+          nrow = 2, ncol = 1,
+          base_height = 4.25, base_width = 4.25)
+```
 ### Selected barcodes
 
 ```{r show_selected_read_count}

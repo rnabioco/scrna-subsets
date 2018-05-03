@@ -664,8 +664,9 @@ ggsave("reads_scatterplot_human_mouse.pdf", width = 14, height = 7)
 plt <- ggplot(filter(subsampled_metadat, 
                              library == "original_10x") %>% 
                 arrange(subsampled),
-       aes(og_human_reads, og_mouse_reads, 
-                               colour = subsampled)) +
+       aes(og_human_umis, 
+           og_mouse_umis, 
+           colour = subsampled)) +
   geom_point(size = 1.5) + 
   xlab("Human UMIs") +
   ylab("Mouse UMIs") +
@@ -734,7 +735,6 @@ ggsave("reads_ratio_scatterplot_normalized_mouse.pdf", width = 7, height = 7)
 ```
 
 ## Genes detected
-
 
 ```{r genes}
 
