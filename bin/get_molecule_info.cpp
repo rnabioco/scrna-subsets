@@ -13,6 +13,15 @@ Molecule::Molecule(bam1_t *aln){
   umikey = bo + "::" + xt ;
 }
 
+void write_output(std::string current_cell,
+                  std::map<std::string, int> umimap ){
+  for(auto const &entry : umimap) {
+    std::cout << current_cell << "\t"
+              << entry.first << "\t"
+              << entry.second << std::endl ;
+  }
+}
+
 void get_molecules(std::string filename){
   // make map to track each unique umi::gene combo
   std::map<std::string, int> umimap ;
@@ -35,17 +44,14 @@ void get_molecules(std::string filename){
     if(molecule.cn == current_cell){
       umimap[molecule.umikey] += 1 ; 
     } else {
-
-      for(auto const &entry : umimap) {
-        std::cout << current_cell << "\t"
-                  << entry.first << "\t"
-                  << entry.second << std::endl ;
-      }
+      write_output(current_cell, umimap) ;
       current_cell = molecule.cn ;
       umimap.clear() ;
       umimap[molecule.umikey] += 1 ; 
     }
   }
+  // write out final map
+  write_output(current_cell, umimap) ;
 }  
   
 int main(int argc, char *argv[]){
