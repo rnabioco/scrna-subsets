@@ -108,7 +108,8 @@ read_dat <- map(read_dat, function(x){
                        cols <- colnames(x)
                        gene_col <- cols[1]
                        cell_cols <- cols[2:length(cols)]
-                       new_cell_cols <- str_split(cell_cols, ":", simplify = T)
+                       new_cell_cols <- str_split(cell_cols, ":",
+                                                  simplify = T)
                        new_cell_cols <- new_cell_cols[, 2]
                        colnames(x) <- c(gene_col, new_cell_cols)
                        x
@@ -1007,85 +1008,86 @@ save_plot("new_genes_species_specific_barplot.pdf", plt,
           base_width = 3.6, base_height = 5) 
 ```
 
+### Parse out new verses old UMIs
+```{r read_umi_seqs}
 
-```{r read_umi_seqs, eval = F}
-#add_umi_seqs <- function(sc_obj, 
-#                         path_to_molecules, 
-#                         barcodes = c("GACGTTAGTGCCTGTG-1",
-#                                      "CTGATCCCATGACGGA-1")) {
-                           
+compare_umis <- function(path_to_ctrl,
+                         path_to_test,
+                         return_summary = F){
+
+  ## umi seqs should be produced by ./get_molecule_info
+  ctrl_umi_seqs <- read_tsv(path_to_ctrl,
+                   col_names = c("barcode_10x", 
+                                 "umi_molecule", 
+                                 "count")) %>% 
+  filter(barcode_10x != "Cell_unmatched")
+
+  test_umi_seqs <- read_tsv(path_to_test,
+                   col_names = c("barcode_10x", 
+                                 "umi_molecule", 
+                                 "count")) %>% 
+  filter(barcode_10x != "Cell_unmatched")
+
+
+  umi_seqs <- full_join(ctrl_umi_seqs, 
+          test_umi_seqs, 
+          by = c("barcode_10x", "umi_molecule"))
+  
+  if (return_summary) {
+    umi_seqs %>% 
+      mutate(new_umi = ifelse(is.na(count.x) & !is.na(count.y), 
+                          1L, 
+                          0L),
+         not_detected_umi = ifelse(!is.na(count.x) & is.na(count.y),
+                                   1L,
+                                   0L),
+         shared_umi = ifelse(!is.na(count.x) & !is.na(count.y),
+                             1L,
+                             0L)) %>% 
+      group_by(barcode_10x) %>% 
+      summarize(new_umis = sum(new_umi),
+            not_detected_umis = sum(not_detected_umi),
+            shared_umis = sum(shared_umi))
+  } else {
+    umi_seqs
+  }
+}
+
 umi_files <- file.path(data_dir, libs, "umis", "umigroups.txt.gz")
-## parse umi seqs into named list and pass to sc_obj
-## umi seqs should be produced by ./get_molecule_info
-og_umi_seqs <- read_tsv(umi_files[1],
-                   col_names = c("barcode_10x", 
-                                 "umi_molecule", 
-                                 "count")) %>% 
-  filter(barcode_10x != "Cell_unmatched")
 
-ctrl_umi_seqs <- read_tsv(umi_files[2],
-                   col_names = c("barcode_10x", 
-                                 "umi_molecule", 
-                                 "count")) %>% 
-  filter(barcode_10x != "Cell_unmatched")
+umi_summaries <- map(umi_files[2:4],
+                   ~compare_umis(umi_files[1], .x, return_summary = T))
 
-pd_umi_seqs <- read_tsv(umi_files[3],
-                   col_names = c("barcode_10x", 
-                                 "umi_molecule", 
-                                 "count")) %>% 
-  filter(barcode_10x != "Cell_unmatched")
-tmp <- full_join(og_umi_seqs, 
-          ctrl_umi_seqs, by = c("barcode_10x", "umi_molecule"))
-  
-ctrl_res <- tmp %>% 
-  mutate(new_umi = ifelse(is.na(count.x) & !is.na(count.y), 
-                          1L, 
-                          0L),
-         not_detected_umi = ifelse(!is.na(count.x) & is.na(count.y),
-                                   1L,
-                                   0L),
-         shared_umi = ifelse(!is.na(count.x) & !is.na(count.y),
-                             1L,
-                             0L)) %>% 
-  group_by(barcode_10x) %>% 
-  summarize(new_umis = sum(new_umi),
-            not_detected_umis = sum(not_detected_umi),
-            shared_umis = sum(shared_umi))
+names(umi_summaries) <- umi_files[2:4] %>% 
+  str_split(., "/") %>% 
+  map_chr(~.x[7])
 
-tmp <- full_join(og_umi_seqs, 
-          pd_umi_seqs, by = c("barcode_10x", "umi_molecule"))
-  
-pd_res <- tmp %>% 
-  mutate(new_umi = ifelse(is.na(count.x) & !is.na(count.y), 
-                          1L, 
-                          0L),
-         not_detected_umi = ifelse(!is.na(count.x) & is.na(count.y),
-                                   1L,
-                                   0L),
-         shared_umi = ifelse(!is.na(count.x) & !is.na(count.y),
-                             1L,
-                             0L)) %>% 
-  group_by(barcode_10x) %>% 
-  summarize(new_umis = sum(new_umi),
-            not_detected_umis = sum(not_detected_umi),
-            shared_umis = sum(shared_umi))
-  
-rm(tmp)
+umi_summary <- bind_rows(umi_summaries, .id = "library")
 
-umis_recovered <- inner_join(ctrl_res, 
-                             pd_res, 
-                             by = "barcode_10x",
-                             suffix = c("::control", "::pulldown"))
+umis_recovered <- umi_summary %>% 
+  gather(class, count, -barcode_10x, -library) 
+
+## annotate with subsampled or not
+libs <- c("standard", "biotinylated","phosphorothioate")
+cell_annot <- data_frame(barcode_10x = cells,
+                         library = libs,
+                         subsampled = T) %>% 
+  unnest()
 
 umis_recovered <- umis_recovered %>% 
-  gather(type, count, -barcode_10x) %>% 
-  separate(type, c("class", "library"), sep = "::")
+  left_join(., cell_annot, by = c("library", "barcode_10x")) %>% 
+  mutate(subsampled = ifelse(is.na(subsampled),
+                             F,
+                             subsampled),
+         library = factor(library, levels = libs)) %>% 
+  arrange(subsampled)
 
 plt <- ggplot(umis_recovered, 
        aes(barcode_10x, count)) +
-  geom_point(size = 0.6,
+  geom_point(aes(colour = subsampled),
+             size = 0.6,
              alpha = 0.75) +
-  facet_grid(class~ library) +
+  facet_grid(library ~ class) +
   theme(axis.text.x = element_blank(),
         axis.title.x = element_blank(),
         strip.text.y = element_text(size = 12,
@@ -1093,28 +1095,62 @@ plt <- ggplot(umis_recovered,
   scale_color_manual(values = color_palette)
 
 plt 
+```
 
 
+```{r}
 
-filter(tmp, 
-       barcode_10x %in% paste0(unique(unlist(cells)), "-1"), 
+umi_seqs <- map(umi_files[2:4],
+                ~compare_umis(umi_files[1], .x, return_summary = F))
+
+names(umi_seqs) <- umi_files[2:4] %>% 
+  str_split(., "/") %>% 
+  map_chr(~.x[7])
+
+new_umis <- map2(umi_seqs, 
+                split(cell_annot, cell_annot$library)[libs],
+    ~filter(.x, 
+       barcode_10x %in% .y$barcode_10x, 
        !is.na(count.y), 
        is.na(count.x))  %>% 
-  separate(umi_molecule, c("seq", "genome", "gene"), sep = "::") -> new_umis
+  separate(umi_molecule, c("seq", "genome", "gene"), sep = "::") %>% 
+    select(-starts_with("count"))) 
 
-filter(tmp, 
-       barcode_10x %in% paste0(unique(unlist(cells)), "-1"), 
-       !is.na(count.x)) %>% 
-  separate(umi_molecule, c("seq", "genome", "gene"), sep = "::") -> old_umis
-a <- left_join(new_umis, old_umis, by = c("barcode_10x", "genome", "gene")) 
-a %>% 
+old_umis <- map2(umi_seqs, 
+                split(cell_annot, cell_annot$library)[libs],
+    ~filter(.x, 
+       barcode_10x %in% .y$barcode_10x, 
+       !is.na(count.x),
+       !is.na(count.y))  %>% 
+  separate(umi_molecule, c("seq", "genome", "gene"), sep = "::") %>% 
+    select(-starts_with("count"))) 
+
+
+umi_edit_dist <- map2(new_umis,
+                      old_umis,
+                     ~left_join(.x, .y, 
+               by = c("barcode_10x", "genome", "gene")) %>% 
+  na.omit() %>% 
   mutate(ed = kentr::get_hamming_pairs(seq.x, seq.y)) %>% 
   group_by(barcode_10x, seq.y, genome, gene) %>% 
   summarize(min_ed = min(ed)) %>% 
-  ungroup() %>% 
-  ggplot(., aes(barcode_10x, min_ed)) + geom_boxplot()
+  ungroup())
+
+umi_edit_dist <- bind_rows(umi_edit_dist, 
+                           .id = "library")
+
+ggplot(umi_edit_dist, aes(barcode_10x, 
+                          min_ed)) + 
+  geom_boxplot(coef = Inf) +
+  facet_wrap(~library, scales = "free_x") +
+  labs(y = "Minimum edit distance\noriginal vs. new UMIs") +
+  theme(axis.text.x = element_text(angle = 90,
+                                   hjust = 1, 
+                                   vjust = 0.5),
+        axis.title.x = element_blank())
 
 ```
+
 ## Plot expression per cell
 
 ```{r ma_per_cell}
@@ -1177,6 +1213,7 @@ ggplot(ma_dat,
 ## Original Expt
 
 ### original library tSNE
+
 ```{r tsne}
 library(Seurat)
 
@@ -1209,27 +1246,28 @@ sobj <- AddMetaData(sobj, new_ids)
 sobj <- SetAllIdent(sobj, "new_id")
 sobj <- NormalizeData(sobj)
 sobj <- ScaleData(sobj, vars.to.regress = "nUMI")
-sobj <- FindVariableGenes(sobj)
-sobj <- RunPCA(sobj, pc.genes = rownames(sobj@data), pcs.compute = 5)
+sobj <- FindVariableGenes(sobj, do.plot = F)
+sobj <- RunPCA(sobj, pc.genes = rownames(sobj@data), pcs.compute = 5, do.print = F)
 sobj <- RunTSNE(sobj, dims.use = 1:5, seed.use = 20180427)
 
 plt <- TSNEPlot(sobj, colors.use = brewer.pal(7, "Set1")) + 
   labs(title = "Breast Cancer PDX") +
   theme(legend.position = "bottom")
 
+sobj <- FindClusters(sobj, dims.use = 1:5, save.SNN = T, print.output = F)
 save_plot("original_tsne.pdf", plt, base_height = 4.25, base_width = 4.25)
 ```
 
 ### original library tSNE supplemented with resampled barcodes
-```{r tsne}
+
+```{r sub_tsne}
 mat <- sc_objs$original$umi_matrix
-human_cell_ids <- sc_objs$original$meta_dat %>% 
- # filter(!subsampled) %>% 
+good_cell_ids <- sc_objs$original$meta_dat %>% 
   filter(str_detect(cell_id, "1Tumor|2LukGFP|3Brain|4Bone"),
          !str_detect(cell_id, "2LukGFPDead")) %>% 
   pull(cell_id)
 
-mat <- mat[, human_cell_ids]
+mat <- mat[, good_cell_ids]
 
 subsampled_ids <- sc_objs$phosphorothioate$meta_dat %>% 
   filter(!subsampled) %>% 
@@ -1285,10 +1323,12 @@ plt <- plot_grid(tsne_plt, purity_plt[[1]], subsampled_cells,
 save_plot("original_tsne_mouse_and_human.pdf", plt, 
           nrow = 3, ncol = 1,
           base_height = 4.25, base_width = 4.25)
+```
 
-###
+```{r}
 
 mat <- sc_objs$original$umi_matrix
+
 human_cell_ids <- sc_objs$original$meta_dat %>% 
   filter(str_detect(cell_id, "1Tumor|2LukGFP|3Brain|4Bone"),
          !str_detect(cell_id, "2LukGFPDead")) %>% 
@@ -1330,7 +1370,23 @@ new_ids <- sobj@meta.data %>%
 
 subsampled_cell_ids <- new_ids[new_ids$subsampled == "subsampled", "cell"] %>% 
   str_replace("::subsampled", "")
-  
+ 
+
+## add in computed purity and other values
+
+mdata_og <- sc_objs$phosphorothioate$meta_dat %>% 
+  filter(cell_id %in% rownames(sobj@meta.data))
+
+subsampled_mdata <- filter(mdata_og, subsampled) %>% 
+  select(cell_id, og_purity_reads = purity_reads) %>% 
+  mutate(cell_id = str_c(cell_id, "::subsampled"))
+
+mdata_og <- mdata_og %>% 
+  select(cell_id, og_purity_reads) %>% 
+  bind_rows(., subsampled_mdata) %>% 
+  as.data.frame() %>% 
+  column_to_rownames("cell_id")
+
 new_ids <- mutate(new_ids, 
                   subsampled = ifelse(cell %in% subsampled_cell_ids, 
                                       "original cell",
@@ -1340,11 +1396,12 @@ new_ids <- mutate(new_ids,
   column_to_rownames("cell")
 
 sobj <- AddMetaData(sobj, new_ids)
+sobj <- AddMetaData(sobj, mdata_og)
 sobj <- SetAllIdent(sobj, "new_id")
 sobj <- NormalizeData(sobj)
 sobj <- ScaleData(sobj, vars.to.regress = "nUMI")
 sobj <- FindVariableGenes(sobj)
-sobj <- RunPCA(sobj, pc.genes = rownames(sobj@data), pcs.compute = 5)
+sobj <- RunPCA(sobj, pc.genes = rownames(sobj@data))
 sobj <- RunTSNE(sobj, dims.use = 1:5, seed.use = 20180502)
 
 tsne_plt <- TSNEPlot(sobj, colors.use = brewer.pal(7, "Set1")) + 
@@ -1358,14 +1415,88 @@ subsampled_cells <- TSNEPlot(SetAllIdent(sobj,
   labs(title = "Breast Cancer PDX") +
   theme(legend.position = "bottom")
 
-plt <- plot_grid(tsne_plt, subsampled_cells,
-                 nrow = 2)
+tmp <- subsampled_cells$data 
+
+og_cell_dat <- tmp[cells$phosphoro, ] %>%
+  rownames_to_column("cell")
+
+subsampled_cell_dat <- tmp[str_c(cells$phosphoro, "::subsampled"), ] %>%
+  rownames_to_column("cell") %>% 
+  mutate(cell = str_replace(cell, "::subsampled", "")) %>% 
+  select(cell, tSNE_1, tSNE_2)
+
+cell_dat <- left_join(og_cell_dat, 
+                      subsampled_cell_dat, 
+                      by = "cell", 
+                      suffix = c("", "_resampled"))
+
+
+subsampled_cells <- TSNEPlot(SetAllIdent(sobj, 
+                                         "subsampled"), 
+                             colors.use = c("lightgrey",
+                                            brewer.pal(7, "Set1")[1:2])) + 
+                  geom_segment(data = cell_dat, 
+                               aes(x = tSNE_1,
+                                   y = tSNE_2, 
+                                   xend = tSNE_1_resampled,
+                                   yend = tSNE_2_resampled),
+                               linejoin = "mitre",
+                               arrow = arrow(length = unit(0.03, "npc"))) + 
+  labs(title = "Breast Cancer PDX") +
+  theme(legend.position = "bottom")
+
+subsampled_cells_purity <- FeaturePlot(sobj,
+                                       features.plot = "og_purity_reads",
+                        no.legend = F, 
+                        do.return = T)$og_purity_reads +  
+                  geom_segment(data = cell_dat, 
+                               aes(x = tSNE_1,
+                                   y = tSNE_2, 
+                                   xend = tSNE_1_resampled,
+                                   yend = tSNE_2_resampled),
+                               linejoin = "mitre",
+                               arrow = arrow(length = unit(0.01, "npc"))) + 
+  labs(title = "Breast Cancer PDX") +
+  theme(legend.position = "bottom")
+
+plt <- plot_grid(tsne_plt, 
+                 subsampled_cells,
+                 subsampled_cells_purity,
+                 nrow = 3)
 
 save_plot("resampled_tsne.pdf", plt, 
-          nrow = 2, ncol = 1,
-          base_height = 4.25, base_width = 4.25)
+          nrow = 3, ncol = 1,
+          base_height = 5.5, base_width = 4.25)
 ```
-### Selected barcodes
+
+## kNN analysis
+
+Find the k-nearest neighboors in PCA and gene expression space
+
+```{r knns}
+
+## use combined data from above
+data.use <- GetCellEmbeddings(object = sobj,
+                              reduction.type = "pca",
+                              dims.use = 1:20)
+
+## find top 10 nearest neighboors using exact search
+knn <- RANN::nn2(data.use, k = 5,
+                 searchtype = 'standard',
+                 eps = 0)
+
+subsampled_idxs <- knn$nn.idx[str_detect(rownames(data.use), "::subsampled"), ]
+
+nn_ids <- as_data_frame(t(apply(subsampled_idxs, 1,
+                      function(x)rownames(data.use)[x])))
+
+colnames(nn_ids) <- c("query_cell", paste0("nearest neighbor ", 1:(ncol(nn_ids) - 1)))
+
+nn_ids
+```
+
+
+## Selected barcodes
 
 ```{r show_selected_read_count}
 sc_metadat <- map(sc_objs["original"], ~.x$meta_dat) %>% 

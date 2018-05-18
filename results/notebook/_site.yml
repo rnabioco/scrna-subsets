@@ -1,0 +1,17 @@
+name: "Targeted resampling of single cell RNA-Seq transcriptomes"
+navbar:
+  title: "Targeted resampling of single cell RNA-Seq transcriptomes"
+  left:
+    - text: "Home"
+      href: index.html
+output:
+  html_document:
+    theme: cosmo
+    highlight: textmate
+    mathjax: null
+    toc_depth: 3
+    toc_float:
+      collapsed: false
+    df_print: paged
+    code_folding: hide
+    exclude: ["*.txt", "*.gz", "*.rds", "*.rda", "*.pdf", "*.tsv", "*.xlsx"]

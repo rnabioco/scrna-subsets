@@ -1030,6 +1030,9 @@ save_plot("new_genes_species_specific_barplot.pdf", plt,
           base_width = 3.6, base_height = 5) 
 ```
 
+
+### Parse out new versus previously identified UMIs
+
 ```{r read_umi_seqs, eval = F}
 #add_umi_seqs <- function(sc_obj, 
 #                         path_to_molecules, 
@@ -1137,6 +1140,144 @@ a %>%
   ggplot(., aes(barcode_10x, min_ed)) + geom_boxplot()
 
 ```
+
+### Parse out new verses old UMIs
+```{r read_umi_seqs, eval = F}
+
+compare_umis <- function(path_to_ctrl,
+                         path_to_test,
+                         return_summary = F){
+
+  ## umi seqs should be produced by ./get_molecule_info
+  ctrl_umi_seqs <- read_tsv(path_to_ctrl,
+                   col_names = c("barcode_10x", 
+                                 "umi_molecule", 
+                                 "count")) %>% 
+  filter(barcode_10x != "Cell_unmatched")
+
+  test_umi_seqs <- read_tsv(path_to_test,
+                   col_names = c("barcode_10x", 
+                                 "umi_molecule", 
+                                 "count")) %>% 
+  filter(barcode_10x != "Cell_unmatched")
+
+  umi_seqs <- full_join(ctrl_umi_seqs, 
+          test_umi_seqs, 
+          by = c("barcode_10x", "umi_molecule"))
+  
+  if (return_summary) {
+    umi_seqs %>% 
+      mutate(new_umi = ifelse(is.na(count.x) & !is.na(count.y), 
+                          1L, 
+                          0L),
+         not_detected_umi = ifelse(!is.na(count.x) & is.na(count.y),
+                                   1L,
+                                   0L),
+         shared_umi = ifelse(!is.na(count.x) & !is.na(count.y),
+                             1L,
+                             0L)) %>% 
+      group_by(barcode_10x) %>% 
+      summarize(new_umis = sum(new_umi),
+            not_detected_umis = sum(not_detected_umi),
+            shared_umis = sum(shared_umi))
+  } else {
+    umi_seqs
+  }
+}
+
+umi_files <- file.path(data_dir, libs, "umis", "umigroups.txt.gz")
+
+umi_summaries <- map(umi_files[2:3],
+                   ~compare_umis(umi_files[1], .x, return_summary = T))
+
+names(umi_summaries) <- umi_files[2:3] %>% 
+  str_split(., "/") %>% 
+  map_chr(~.x[7])
+
+umi_summary <- bind_rows(umi_summaries, .id = "library")
+
+umis_recovered <- umi_summary %>% 
+  gather(class, count, -barcode_10x, -library) 
+
+## annotate with subsampled or not
+libs <- c("standard", "biotinylated","phosphorothioate")
+cell_annot <- data_frame(barcode_10x = cells,
+                         library = libs,
+                         subsampled = T) %>% 
+  unnest()
+
+umis_recovered <- umis_recovered %>% 
+  mutate(subsampled = ifelse(str_replace(barcode_10x, "-1", "") %in% unlist(cells),
+                             T,
+                             F)) %>% 
+  arrange(subsampled)
+
+plt <- ggplot(umis_recovered, 
+       aes(barcode_10x, count)) +
+  geom_point(aes(colour = subsampled),
+             size = 0.6,
+             alpha = 0.75) +
+  facet_grid(library ~ class) +
+  theme(axis.text.x = element_blank(),
+        axis.title.x = element_blank(),
+        strip.text.y = element_text(size = 12,
+                                    margin = margin(0,0.2,0,0.2, "cm"))) +
+  scale_color_manual(values = color_palette)
+
+plt 
+```
+
+```{r}
+umi_seqs <- map(umi_files[2:3],
+                ~compare_umis(umi_files[1], .x, return_summary = F))
+
+names(umi_seqs) <- umi_files[2:3] %>% 
+  str_split(., "/") %>% 
+  map_chr(~.x[7])
+
+new_umis <- map(umi_seqs, 
+    ~filter(.x, 
+       str_replace(barcode_10x, "-1", "") %in% unlist(cells), 
+       !is.na(count.y), 
+       is.na(count.x))  %>% 
+  separate(umi_molecule, c("seq", "genome", "gene"), sep = "::") %>% 
+    select(-starts_with("count"))) 
+
+old_umis <- map(umi_seqs, 
+    ~filter(.x, 
+       str_replace(barcode_10x, "-1", "") %in% unlist(cells), 
+       !is.na(count.x),
+       !is.na(count.y))  %>% 
+  separate(umi_molecule, c("seq", "genome", "gene"), sep = "::") %>% 
+    select(-starts_with("count"))) 
+
+
+umi_edit_dist <- map2(new_umis,
+                      old_umis,
+                     ~left_join(.x, .y, 
+               by = c("barcode_10x", "genome", "gene")) %>% 
+  na.omit() %>% 
+  mutate(ed = kentr::get_hamming_pairs(seq.x, seq.y)) %>% 
+  group_by(barcode_10x, seq.y, genome, gene) %>% 
+  summarize(min_ed = min(ed)) %>% 
+  ungroup())
+
+umi_edit_dist <- bind_rows(umi_edit_dist, 
+                           .id = "library")
+
+ggplot(umi_edit_dist, aes(barcode_10x, 
+                          min_ed)) + 
+  geom_boxplot(coef = Inf) +
+  facet_wrap(~library, scales = "free_x") +
+  labs(y = "Minimum edit distance\noriginal vs. new UMIs") +
+  theme(axis.text.x = element_text(angle = 90,
+                                   hjust = 1, 
+                                   vjust = 0.5),
+        axis.title.x = element_blank())
+
+rm(umi_seqs)
+```
+
 ## Plot expression per cell
 
 ```{r ma_per_cell}
@@ -1150,6 +1291,7 @@ calc_ma <- function(xmat, ymat, cell = "GCAGTTAAGTGTCCAT"){
              mean_expression_log2 = m,
              log2_diff = a)
 }
+
 ma_dat <- map(unique(unlist(cells)),
     ~calc_ma(sc_objs$lna_pulldown$norm_umi, 
              sc_objs$original_10x$norm_umi,

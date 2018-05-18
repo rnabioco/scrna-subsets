@@ -1,0 +1,18 @@
+---
+title: "Targeted resampling of single cell RNA-Seq transcriptomes"
+author: "Kent Riemondy RBI"
+date: '`r Sys.Date()`'
+---
+
+## Data processing pipeline
+
+[Snakemake Pipeline](../../../pipeline/Snakefile)
+
+## Data analyses
+
+[BrCa cell PCR](../../2018-04-27_pcr_expt/pcr_enrichment.html)   
+[Mouse and Human cell pulldown expt 1](../../2018-02-21/lna_pulldown.html)   
+[Mouse and Human cell pulldown expt 2](../../2018-05-16_mouse_human/mouse_human_pulldown.html)   
+[Megakaryocyte cell pulldown](../../2018-05-15_pbmc/mkcell_pulldown.html)   
+[PBMC gene pulldown](../../2018-05-15_pbmc/gene_pulldown.html)   
+  
