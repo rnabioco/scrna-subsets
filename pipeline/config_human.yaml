@@ -1,0 +1,32 @@
+# config for scRNA-SEQ snakemake pipeline #
+# setup for mouse-human datasets #
+
+DATA: "../data/"
+
+PROJECTS: 
+  - 'kirkpatrick'
+  - 'gene_pulldown'
+  - 'mkcell_pulldown'
+
+GENOME_FA:
+  "/vol3/home/riemondy/Projects/shared_dbases/genomes/GRCh38.primary_assembly.genome.fa"
+
+STAR_IDX:
+  "/vol3/home/riemondy/Projects/shared_dbases/star/gencode_GRCh38/"
+
+TRANSCRIPTS:
+  "/vol3/home/riemondy/Projects/shared_dbases/annotation/gencode.v25.annotation.gtf"
+
+IDS:
+  kirkpatrick: "C2_S1_L002"
+  gene_pulldown: "2_Dipaola_Kirkpatrick_C2_S1_L002"
+  mkcell_pulldown: "2_Dipaola_Kirkpatrick_C2_S1_L001"
+
+LIB_MAP:
+  kirkpatrick: "LNA"
+  gene_pulldown: "LNA"
+  mkcell_pulldown: "LNA"
+
+LNA:
+  bcs: "/vol3/home/riemondy/Projects/subsampled_scRNA/data/kirkpatrick/fastq/original/barcodes_from_10x_run.txt"
+  seq_extract: " 1 16 17 26 "  

@@ -7,7 +7,7 @@ from os import path
 
 """ Snakemake pipeline to process wafergen or 10x single cell libraries """
 
-configfile: "config_all.yaml"
+configfile: "config_mouse_human.yaml"
 
 DATA = config["DATA"]
 PROJECTS = config["PROJECTS"]
@@ -17,28 +17,49 @@ GENOME_FA = config['GENOME_FA']
 BIN = "../bin"
 STAR_IDX_OUT = STAR_IDX + "Genome"
 TRANSCRIPTS = config["TRANSCRIPTS"]
-TRANSCRIPTS_BED = config["TRANSCRIPTS_BED"]
 lib_map = config["LIB_MAP"]
 
 rule all:
   input: 
     {STAR_IDX_OUT},
     expand(DATA + '{projects}/fastq/original/fastqc/{ids}_R1_001_fastqc.zip',
-    zip, ids=[IDS[x] for x in PROJECTS], projects=PROJECTS),
+      zip, ids=[IDS[x] for x in PROJECTS], projects=PROJECTS),
     expand(DATA + '{projects}/fastq/original/fastqc/{ids}_R2_001_fastqc.zip',
-    zip, ids=[IDS[x] for x in PROJECTS], projects=PROJECTS),
-    #expand(DATA + '{projects}/fastq/modified/renamed_{ids}_R2_001.fastq.gz',
-    #zip, ids=[IDS[x] for x in PROJECTS], projects=PROJECTS),
+      zip, ids=[IDS[x] for x in PROJECTS], projects=PROJECTS),
     expand(DATA + "{projects}/star/alignments/Aligned_bc_exons.bam",
-    projects=PROJECTS),
+      projects=PROJECTS),
     expand(DATA + "{projects}/dgematrix/dge_matrix.txt",
-    projects=PROJECTS),
-    expand(DATA + "{projects}/featurecounts/assigned_read_counts.txt",
       projects=PROJECTS),
     expand(DATA + "{projects}/star/alignments/Aligned_bc_exons_umigroups.bam",
       projects=PROJECTS),
     expand(DATA + "{projects}/umis/umigroups.txt.gz",
       projects=PROJECTS),
+    expand(DATA + "{projects}/umis/umigroups_positions.txt.gz",
+      projects=PROJECTS),
+
+rule extract_umi_positions:
+  """ pull out all umis
+  from bam and generate 
+  flat file for parsing in R with positions
+  
+  Requires bam sorted by error corrected cell barcode
+  """
+  input:
+    bam = DATA + "{projects}/star/alignments/Aligned_bc_exons_umigroups.bam",
+  output:
+    DATA + "{projects}/umis/umigroups_positions.txt.gz",
+  params:
+    job_name = "{projects}.umigroups",
+    memory = "select[mem>50] rusage[mem=50]",
+  log:
+    DATA + "{projects}/umis/logs/make_groups.txt",
+  resources: all_threads = 1
+  shell:
+    """
+    module load gcc
+    {BIN}/get_molecule_position {input.bam} \
+      | gzip > {output}
+    """
 
 rule extract_umis:
   """ pull out all umis
@@ -59,6 +80,7 @@ rule extract_umis:
   resources: all_threads = 1
   shell:
     """
+    module load gcc
     {BIN}/get_molecule_info {input.bam} \
       | gzip > {output}
     """
@@ -77,11 +99,12 @@ rule group_umis:
     job_name = "{projects}.umigroup",
     memory = "select[mem>100] rusage[mem=100]",
   log:
-    DATA + "{projects}/star/logs/make_groups.txt",
+    DATA + "{projects}/star/log/make_groups.txt",
   resources: all_threads = 1
   shell:
     """
-    /vol3/home/riemondy/.local/bin/umi_tools group \
+    module load python3/3.6.5
+    umi_tools group \
       --per-gene \
       --gene-tag "XT" \
       --per-cell \
@@ -116,52 +139,20 @@ rule count_umis:
   resources: all_threads = 1
   shell:
     """
-    /vol3/home/riemondy/.local/bin/umi_tools count \
+    module load python3/3.6.5
+    umi_tools count \
       --per-gene \
       --gene-tag "XT" \
       --per-cell \
       --extract-umi-method=tag \
       --umi-tag "BX" \
+      --cell-tag-split=None \
       --cell-tag "CN" \
       --wide-format-cell-counts \
       -I {input.bam} \
       -S {output.txt} \
       -L {output.summary}
     """
-
-rule count_reads: 
-  """ use feature counts to 
-  report read counts 
-  subread 1.6.0
-  """
-  input:
-    DATA + "{projects}/star/alignments/Aligned_bc.bam",
-  output:
-    fc_summary = DATA + "{projects}/featurecounts/assigned_read_counts.txt"
-  params:
-    prefix = DATA + "{projects}/featurecounts/assigned_read_counts.txt",
-    job_name = "{projects}.countexons",
-    memory = "select[mem>250] rusage[mem=250]",
-  threads: 12
-  resources: all_threads = 12
-  log:
-    DATA + "{projects}/featurecounts/log/read_counts.txt"
-  shell:
-    """
-    module load gcc
-    {BIN}/rgtag_bam {input} {input}".tmpbam"
-
-    /vol3/home/riemondy/src/subread-1.6.0-Linux-x86_64/bin/featureCounts \
-      -a {TRANSCRIPTS} \
-      -T {threads} \
-      -o {params.prefix} \
-      -s 1 \
-      -g "gene_name" \
-      --byReadGroup \
-      {input}.tmpbam
-
-    rm -f {input}.tmpbam
-    """  
 
 rule featurecount_bam:
   """ use feature counts to associate each
@@ -217,7 +208,6 @@ def _get_seq_and_umi(wildcards):
 
   return idx_settings
  
-
 def _get_bcs(wildcards):
   """ lookup global dictionary lib_map via sample
       wildcard and return settings for selecting
@@ -285,39 +275,36 @@ rule star_align:
     module unload star
     """
 
-rule cutadapt:
+rule append_r1_seq_to_R2:
+  """ move R1 sequence to R2 read name and
+      trim R1 sequence to 30 nucleotides
+
+      also trim poly(A) tails from R2 using cutadapt
+  """
   input:
-    lambda wildcards: DATA + wildcards.projects + '/fastq/modified/renamed_' + IDS[wildcards.projects] + '_R2_001.fastq.gz'
+    R1 = lambda wildcards: os.path.join(DATA, wildcards.projects, 'fastq','original', IDS[wildcards.projects] + '_R1_001.fastq.gz'),
+    R2 = lambda wildcards: os.path.join(DATA, wildcards.projects, 'fastq','original', IDS[wildcards.projects] + '_R2_001.fastq.gz')
   output:
     temp(DATA + '{projects}/fastq/modified/R2_trimmed.fastq.gz')
-  params:
-    job_name = '{projects}_trimming',
-    memory =  "select[mem>4] rusage[mem=4] "
-  log:
-    DATA + "{projects}/fastq/log/trimming.txt"
-  resources: all_threads = 1
-  shell:
-    "cutadapt -a 'A{{100}}' -m 20 -q 10 -o {output} {input} > {log}"
-
-
-rule append_r1_seq_to_R2:
-  input:
-    R1 = DATA + '{projects}/fastq/original/{ids}_R1_001.fastq.gz',
-    R2 = DATA + '{projects}/fastq/original/{ids}_R2_001.fastq.gz',
-  output:
-    temp(DATA + '{projects}/fastq/modified/renamed_{ids}_R2_001.fastq.gz')
   params:
     job_name = "{projects}.renamefq",
     memory = "select[mem>8] rusage[mem=8] span[hosts=1]"
   log:
-    DATA + '{projects}/fastq/log/{ids}_rename_fq.txt'
-  resources: all_threads = 1
+    DATA + '{projects}/fastq/log/rename_fq.txt'
+  resources: all_threads = 3 #cutadapt uses pigz 
+  threads: 3
   shell:
     """
-    {BIN}/append_read_name {input.R1} {input.R2} \
+    module load gcc
+    {BIN}/append_read_name {input.R1} {input.R2} 30 \
       2> {log} \
-      | gzip \
-      > {output}
+      | cutadapt \
+        -a 'A{{100}}' \
+        -O 6 \
+        -m 20 \
+        -q 10 \
+        -o {output} - \
+        > {log}
     """
 
 rule fastqc:
