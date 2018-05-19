@@ -13,6 +13,7 @@
 #include <string>
 #include <map>
 #include <unordered_set>
+#include <set>
 #include "htslib/hts.h"
 #include "htslib/sam.h"
 #include "htslib/bgzf.h"
@@ -39,6 +40,14 @@ public:
   std::string cn, bo, xt, umikey ;
   int64_t ug ; 
   Molecule(bam1_t*) ;
+};
+
+// Class for handling umis with positions
+class PosMolecule {
+public:
+  int32_t pos ;
+  std::string chrom, cn, bo, xt, umikey ;
+  PosMolecule(bam1_t*, bam_hdr_t*);
 };
 
 #endif

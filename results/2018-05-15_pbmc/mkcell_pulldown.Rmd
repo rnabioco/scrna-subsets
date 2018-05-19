@@ -272,8 +272,7 @@ ggplot(sc_metadat, aes(total_reads, cDNA_duplication)) +
 
 ## plot read and umi counts per library
 
-```{r plot_read_and_umi_counts}
-
+```{r plot_read_and_umi_counts,}
 
 global_plot_theme <- theme(
         legend.position = "top",
@@ -285,7 +284,8 @@ subsampled_metadat <- sc_metadat[sc_metadat$library != reflib, ] %>%
                           levels = c(subsampled_libs)))
 
 unnorm_plt <- ggplot(subsampled_metadat, 
-                     aes(og_total_reads / 3, total_reads / 3, colour = subsampled)) + 
+                     aes(og_total_reads / 3, total_reads / 3, 
+                         colour = subsampled)) + 
   geom_point(size = 0.5) + 
   geom_abline(slope = 1) +
   facet_wrap(~library, nrow = 1) + 
@@ -314,7 +314,8 @@ norm_plt <- ggplot(subsampled_metadat, aes(og_norm_total_reads / 1e3,
   global_plot_theme
 
 unnorm_umi_plt <- ggplot(subsampled_metadat, 
-                         aes(og_total_umis / 1e3, total_umis / 1e3, colour = subsampled)) + 
+                         aes(og_total_umis / 1e3, 
+                             total_umis / 1e3, colour = subsampled)) + 
   geom_point(size = 0.5) + 
   geom_abline(slope = 1) +
  # coord_fixed() +
@@ -328,7 +329,9 @@ unnorm_umi_plt <- ggplot(subsampled_metadat,
   global_plot_theme
 
 norm_umi_plt <- ggplot(subsampled_metadat, 
-                       aes(og_norm_total_umis / 1e3, norm_total_umis / 1e3, colour = subsampled)) + 
+                       aes(og_norm_total_umis / 1e3, 
+                           norm_total_umis / 1e3,
+                           colour = subsampled)) + 
   geom_point(size = 0.5) + 
   geom_abline(slope = 1) + 
   facet_wrap(~library, nrow = 1) + 
@@ -344,7 +347,8 @@ plt <- plot_grid(unnorm_plt, norm_plt, unnorm_umi_plt, norm_umi_plt,
                  labels = "AUTO",
                  align = 'hv')
 plt
-save_plot("reads_per_barcode_scatterplots.pdf", plt, nrow = 2, ncol = 2, base_width = 8 )
+save_plot("reads_per_barcode_scatterplots.pdf", plt, 
+          nrow = 2, ncol = 2, base_width = 8 )
 ```
 
 ## Plot enrichment of reads/umis 
@@ -354,7 +358,8 @@ read <- ggplot(subsampled_metadat,
        aes(cell_id, norm_read_proportion, colour = subsampled)) + 
   geom_point() + 
   labs(x = "Cell", 
-       y = expression(paste( " Log"[2], " normalized reads ", frac("subsampled", "original")))) +
+       y = expression(paste( " Log"[2], " normalized reads ", 
+                             frac("subsampled", "original")))) +
   scale_colour_manual(name = "subsampled:", values = color_palette) +
   facet_wrap(~library, nrow = 1) + 
   theme_cowplot(font_size = 16, line_size = 1) +
@@ -393,21 +398,22 @@ umi <- ggplot(filter(subsampled_metadat, library %in% subsampled_libs),
         legend.position = "top",
         legend.text = element_text(size = 12))
 
-ggsave("umi_ratio_MA_normalized.pdf", umi, width =5, height = 5)
-
-
+umi
+ggsave("umi_ratio_per_cell.pdf", umi, width =5, height = 5)
 
 umi <- ggplot(filter(subsampled_metadat, library %in% subsampled_libs), 
        aes(og_total_umis, umi_proportion, colour = subsampled)) + 
   geom_point() + 
-  labs(x = "Total UMIs per barcode", 
-       y = expression(paste( "Log"[2], " UMIs ", frac("subsampled", "original")))) +
+  labs(x = "Original Library UMIs", 
+       y = expression(paste( "Log"[2], " UMIs ", 
+                             frac("subsampled", "original")))) +
   scale_colour_manual(name = "subsampled:", values = color_palette) +
   facet_wrap(~library, nrow = 1) + 
   theme_cowplot(font_size = 16, line_size = 1) +
   theme(legend.position = "top",
         legend.text = element_text(size = 12))
 
+umi
 ggsave("umi_ratio_MA.pdf", umi, width =5, height = 5)
 ```
 
@@ -416,7 +422,7 @@ ggsave("umi_ratio_MA.pdf", umi, width =5, height = 5)
 ```{r per_cell_ratio_reads_counts}
 ggplot(subsampled_metadat, aes(subsampled, 
                 read_proportion, fill = subsampled)) + 
-  geom_boxplot() + 
+  geom_boxplot(coef = Inf) + 
   facet_wrap(~library, nrow = 1) +
   xlab("Selected for Reamplification") +
   ylab(expression(paste( "Log"[2], " Reads ", frac("subsampled", "original")))) +
@@ -433,7 +439,7 @@ ggsave("reads_ratio_per_barcode_boxplot.pdf", width = 6, height = 5)
 
 ggplot(subsampled_metadat, aes(subsampled, 
                 umi_proportion, fill = subsampled)) + 
-  geom_boxplot() + 
+  geom_boxplot(coef = Inf) + 
   facet_wrap(~library, nrow = 1) +
   xlab("Selected for Reamplification") +
   ylab(expression(paste( "Log"[2], " UMIs ", frac("subsampled", "original")))) +
@@ -450,7 +456,7 @@ ggsave("umi_ratio_per_barcode_boxplot.pdf", width = 6, height = 5)
 
 ggplot(subsampled_metadat, aes(subsampled, 
                 norm_read_proportion, fill = subsampled)) + 
-  geom_boxplot() + 
+  geom_boxplot(coef = Inf) + 
   facet_wrap(~library, nrow = 1) +
   xlab("Selected for Reamplification") +
   ylab(expression(paste( "Log"[2], " normalized Reads ", frac("subsampled", "original")))) +
@@ -467,7 +473,7 @@ ggsave("norm_reads_ratio_per_barcode_boxplot.pdf", width = 6, height = 5)
 
 ggplot(subsampled_metadat, aes(subsampled, 
                 norm_umi_proportion, fill = subsampled)) + 
-  geom_boxplot() + 
+  geom_boxplot(coef = Inf) + 
   facet_wrap(~library, nrow = 1) +
   xlab("Selected for Reamplification") +
   ylab(expression(paste( "Log"[2], " normalized UMIs ", frac("subsampled", "original")))) +
@@ -557,19 +563,20 @@ subsampled_metadat <- left_join(subsampled_metadat,
                                 by = "cell_id") %>% 
   filter(library != reflib)
 
-ggplot(subsampled_metadat, aes(og_genes, 
+plt <- ggplot(subsampled_metadat, aes(og_genes, 
                                n_genes, colour = subsampled)) + 
-  geom_point() + 
-  ylab("subsampled_genes") +
-  xlab("original_genes") + 
+  geom_point(size = 0.5) + 
+  ylab("Genes detected\n(subsampled library)") +
+  xlab("Genes detected\n(original library)") + 
   scale_colour_manual(name =  "subsampled:", values = color_palette) +
   facet_wrap(~library, nrow = 1) + 
-  theme_cowplot(font_size = 16, line_size = 1) +
+  guides(colour = guide_legend(override.aes = list(size = 3))) +
   theme(
     legend.position = "top",
-    legend.text = element_text(size = 16)
+    legend.text = element_text(size = 10)
   )
-
+plt
+save_plot("genes_detected_scatterplot.pdf", plt)
 ```
 
 ### Parse out new versus previously identified genes
@@ -803,6 +810,7 @@ plot_ma <- function(df){
 }
 
 plt <- plot_ma(ma_dat)
+plt
 save_plot("per_cell_MA_plot_all_genes.pdf", plt, base_height = 6)
 
 ## Shared genes
@@ -818,6 +826,7 @@ ma_dat <- map(cell_ids,
 names(ma_dat) <- cell_ids
 ma_dat <- bind_rows(ma_dat, .id = "cell")
 plt <- plot_ma(ma_dat)
+plt
 save_plot("per_cell_MA_plot_shared_genes.pdf", plt, base_height = 6)
 
 
@@ -834,6 +843,7 @@ ma_dat <- map(cell_ids,
 names(ma_dat) <- cell_ids
 ma_dat <- bind_rows(ma_dat, .id = "cell")
 plt <- plot_ma(ma_dat)
+plt
 save_plot("per_cell_MA_plot_new_genes.pdf", plt, base_height = 6)
 
 ```
@@ -842,25 +852,43 @@ save_plot("per_cell_MA_plot_new_genes.pdf", plt, base_height = 6)
 
 #### Histograms
 
-```{r get_expr}
+```{r get_expr, fig.height = 12}
 get_expr <- function(xmat, ymat, cell = "GCAGTTAAGTGTCCAT"){
-
+  xrows <- rownames(xmat)
   xmat <- log2(xmat[, cell] + 1)
-  ymat <- log2(ymat[, cell] + 1)
-
-  data_frame(subsampled = xmat,
-             original = ymat) %>% 
+  ymat <- log2(ymat[xrows, cell] + 1)
+  data_frame(
+    gene = xrows,
+    subsampled = xmat,
+    original = ymat) %>% 
     gather(library, 
-           Expression)
+           Expression, -gene)
 }
 
 plot_histogram <- function(df){
   ggplot(df, 
          aes_string("Expression")) +
-    geom_histogram(aes_string(fill = "library")) +
-    facet_wrap(~cell, ncol = 2)
+    geom_density(aes_string(fill = "library"),
+                 alpha = 0.66) +
+    scale_fill_viridis_d(name = "") +
+    facet_wrap(~cell, nrow = 1) +
+    theme(legend.position = "top",
+          strip.text = element_text(size = 8)) 
 }
 
+expr_dat <- map(cell_ids,
+  function(x){
+    genes_to_plot <- names(sc_objs[[subsampled_lib]]$genes_detected[[x]])
+    get_expr(sc_objs[[subsampled_lib]]$umi_matrix[genes_to_plot,
+                                                              cols],
+            ref_mat[genes_to_plot, cols],
+             cell = x)
+})
+
+names(expr_dat) <- cell_ids
+expr_dat <- bind_rows(expr_dat, .id = "cell")
+expressed_in_subsampled_plt <- plot_histogram(expr_dat)
+expressed_in_subsampled_plt
 
 expr_dat <- map(cell_ids,
   function(x){
@@ -873,8 +901,8 @@ expr_dat <- map(cell_ids,
 
 names(expr_dat) <- cell_ids
 expr_dat <- bind_rows(expr_dat, .id = "cell")
-plot_histogram(expr_dat)
-
+share_genes_plt <- plot_histogram(expr_dat)
+share_genes_plt
 
 expr_dat <- map(cell_ids,
   function(x){
@@ -885,10 +913,122 @@ expr_dat <- map(cell_ids,
              cell = x)
 })
 
+names(expr_dat) <- cell_ids
+expr_dat <- bind_rows(expr_dat, .id = "cell")
+new_gene_plt <- plot_histogram(expr_dat)
+
+
+plts <- list(
+  expressed_in_subsampled_plt,
+  share_genes_plt,
+  new_gene_plt
+)
+
+plt <- plot_grid(plotlist = plts, ncol = 1)
+plt
+
+save_plot("expression_histograms.pdf", plt, 
+          ncol = 1, nrow = 3,
+          base_height = 4,
+          base_aspect_ratio = 2)
 ```
 
-## UMIs detected
 
+#### scatterplots
+
+```{r get_expr}
+get_paired_expr <- function(xmat, ymat, cell = "GCAGTTAAGTGTCCAT"){
+  xrows <- rownames(xmat)
+  xmat <- log2(xmat[, cell] + 1)
+  ymat <- log2(ymat[xrows, cell] + 1)
+  data_frame(
+    gene = xrows,
+    subsampled = xmat,
+    original = ymat)
+}
+
+plot_scatter <- function(df){
+  ggplot(df, 
+         aes_string("original", "subsampled")) +
+    geom_point(size = 0.5) + 
+    geom_abline(aes(slope = 1, intercept = 0)) +
+    facet_wrap(~cell, nrow = 1) +
+    coord_fixed() + 
+    theme(legend.position = "top",
+          strip.text = element_text(size = 8)) 
+}
+
+expr_dat <- map(cell_ids,
+  function(x){
+    genes_to_plot <- names(sc_objs[[subsampled_lib]]$genes_detected[[x]])
+    get_paired_expr(sc_objs[[subsampled_lib]]$umi_matrix[genes_to_plot,
+                                                              cols],
+            ref_mat[genes_to_plot, cols],
+             cell = x)
+})
+
+names(expr_dat) <- cell_ids
+expr_dat <- bind_rows(expr_dat, .id = "cell")
+expressed_in_subsampled_plt <- plot_scatter(expr_dat)
+expressed_in_subsampled_plt
+
+expr_dat <- map(cell_ids,
+  function(x){
+    genes_to_plot <- sc_objs[[subsampled_lib]]$shared_genes[[x]]
+    get_paired_expr(sc_objs[[subsampled_lib]]$umi_matrix[genes_to_plot,
+                                                              cols],
+            ref_mat[genes_to_plot, cols],
+             cell = x)
+})
+
+names(expr_dat) <- cell_ids
+expr_dat <- bind_rows(expr_dat, .id = "cell")
+share_genes_plt <- plot_scatter(expr_dat)
+share_genes_plt
+
+expr_dat <- map(cell_ids,
+  function(x){
+    genes_to_plot <- sc_objs[[subsampled_lib]]$new_genes[[x]]
+    get_paired_expr(sc_objs[[subsampled_lib]]$umi_matrix[genes_to_plot,
+                                                              cols],
+            ref_mat[genes_to_plot, cols],
+             cell = x)
+})
+
+names(expr_dat) <- cell_ids
+expr_dat <- bind_rows(expr_dat, .id = "cell")
+new_gene_plt <- ggplot(expr_dat, aes(cell,subsampled)) +
+  geom_jitter(alpha = 0.55) +
+  geom_violin(aes(fill = cell)) +
+  ylim(0, max(expr_dat$subsampled) * 1.10) + 
+  scale_fill_brewer(palette = "Set1") +
+    theme(axis.text.x = element_text(angle = 90, 
+                                     hjust = 1, vjust = 0.5),
+          legend.pos = "none",
+          axis.title.x = element_blank()) 
+
+new_gene_plt
+
+plts <- list(
+  expressed_in_subsampled_plt,
+  share_genes_plt
+)
+
+plt <- plot_grid(plotlist = plts, ncol = 1)
+plt
+
+save_plot("expression_scatterplots.pdf", plt, 
+          ncol = 1, nrow = 3,
+          base_height = 4,
+          base_aspect_ratio = 2)
+
+save_plot("expression_newgenes_violinplots.pdf", new_gene_plt, 
+          base_height = 6,
+          base_aspect_ratio = 0.5)
+```
+
+
+## UMIs detected
 
 ### Parse out new verses old UMIs
 ```{r read_umi_seqs}
@@ -1057,6 +1197,7 @@ save_plot("original_mkcells_tsne.pdf", plt, base_height = 4.25, base_width = 4.2
 ```
 
 ### original library tSNE supplemented with resampled barcodes
+
 
 ```{r subsampled_tsn, results='hide'}
 

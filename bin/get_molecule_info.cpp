@@ -5,14 +5,6 @@ int usage(){
   return 1 ;
 }
 
-Molecule::Molecule(bam1_t *aln){
-  cn = std::string(bam_aux2Z(bam_aux_get(aln, "CN"))) ;
-  bo = std::string(bam_aux2Z(bam_aux_get(aln, "BO"))) ;
-  ug = bam_aux2i(bam_aux_get(aln, "UG")) ;
-  xt = std::string(bam_aux2Z(bam_aux_get(aln, "XT"))) ;
-  umikey = bo + "::" + xt ;
-}
-
 void write_output(std::string current_cell,
                   std::map<std::string, int> umimap ){
   for(auto const &entry : umimap) {
