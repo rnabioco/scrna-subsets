@@ -75,7 +75,6 @@ lib_names = c(
 )
 
 ## pretty names for cells
-
 cell_names = c(
   "GACGTTAGTGCCTGTG-1" = "Mouse Cell",
   "CTGATCCCATGACGGA-1" = "Human Cell")
@@ -889,7 +888,6 @@ resampled_metadat <- map(sc_objs, ~.x$meta_dat) %>%
                           levels = libs)) %>% 
   arrange(resampled)
 ```
-
 
 ```{r per_cell_gene_recovery}
 

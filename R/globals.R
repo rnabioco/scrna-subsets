@@ -157,3 +157,49 @@ standardize_rows <- function(xmat,
                zero_mat)
   res
 }
+
+
+#' Combine and compare two umi flat files
+#'
+#'
+compare_umis <- function(path_to_ctrl,
+                         path_to_test,
+                         return_summary = F,
+                         cells_exclude = "Cell_unmatched"){
+  
+  ## umi seqs should be produced by ./get_molecule_info
+  ctrl_umi_seqs <- read_tsv(path_to_ctrl,
+                            col_names = c("barcode_10x", 
+                                          "umi_molecule", 
+                                          "count")) %>% 
+    filter(!barcode_10x %in% cells_exclude)
+  
+  test_umi_seqs <- read_tsv(path_to_test,
+                            col_names = c("barcode_10x", 
+                                          "umi_molecule", 
+                                          "count")) %>% 
+    filter(!barcode_10x %in% cells_exclude)
+  
+  umi_seqs <- full_join(ctrl_umi_seqs, 
+                        test_umi_seqs, 
+                        by = c("barcode_10x", "umi_molecule"))
+  
+  if (return_summary) {
+    umi_seqs %>% 
+      mutate(new_umi = ifelse(is.na(count.x) & !is.na(count.y), 
+                              1L, 
+                              0L),
+             not_detected_umi = ifelse(!is.na(count.x) & is.na(count.y),
+                                       1L,
+                                       0L),
+             shared_umi = ifelse(!is.na(count.x) & !is.na(count.y),
+                                 1L,
+                                 0L)) %>% 
+      group_by(barcode_10x) %>% 
+      summarize(new_umis = sum(new_umi),
+                not_detected_umis = sum(not_detected_umi),
+                shared_umis = sum(shared_umi))
+  } else {
+    umi_seqs
+  }
+}

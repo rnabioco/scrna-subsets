@@ -14,7 +14,20 @@ output:
     df_print: paged
 ---
 
-## Examine Lna pulldown data
+## Megakaryocyte targeting via LNA pulldown
+
+Megakaryocytes represent a small proportion of the cells in a typical PBMC sample and therefore were selected as an additional test of the LNA pulldown techinique. Four megakaryocyte cells were reamplified after LNA pulldown. 
+
+Following reamplification the 4 cell libraries were pooled and resequenced together. The raw fastqs were then processed using a Snakemake [pipeline](../../pipeline/Snakefile), to produce two processed data files:
+
+1. A matrix with UMIs per cell (column) per gene (rows) (dge_matrix.txt)
+1. A flatfile with per UMI information (umigroups.txt.gz)
+
+This RMarkdown document will produce the following figures:
+
+1. ...
+1. ...
+1. ...
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -27,16 +40,16 @@ source("../../R/globals.R")
 color_palette = c("#bdbdbd", "#1F78B4")
 ```
 
-## Organize single cell libraries
+## Organize single cell data
 
-First designate the libraries and the cells that were subsampled. 
+First designate the libraries and the cells that were resampled. 
 
 ```{r cell_ids}
 cells <- list(
   mkcell_pulldown = c("TGCGCAGCAGGTCGTC",
-              "ACTTGTTAGGACCACA",
-              "CCATTCGTCCCTGACT",
-              "TGTCCCAGTAAACACA"))
+                      "ACTTGTTAGGACCACA",
+                      "CCATTCGTCCCTGACT",
+                      "TGTCCCAGTAAACACA"))
 
 libs <- c(
   "kirkpatrick",
@@ -51,10 +64,24 @@ bc_metadat <- read_tsv(file.path(data_dir,
 
 ## original library to compare against
 reflib <- "kirkpatrick"
-## all subsampled libs to plot
-subsampled_libs <- "mkcell_pulldown"
-## reference subsampled lib for subsampled vs control plots
-subsampled_lib <- "mkcell_pulldown"
+## all resampled libs to plot
+resampled_libs <- "mkcell_pulldown"
+## reference resampled lib for resampled vs control plots
+resampled_lib <- "mkcell_pulldown"
+
+## pretty name for libraries
+lib_names = c(
+  kirkpatrick = "Original Library",
+  mkcell_pulldown = "Resampled Library"
+)
+
+## pretty names for cells
+cell_names = c(
+  "TGCGCAGCAGGTCGTC-1" = "MK-cell-1",
+  "ACTTGTTAGGACCACA-1" = "MK-cell-2",
+  "CCATTCGTCCCTGACT-1" = "MK-cell-3",
+  "TGTCCCAGTAAACACA-1" = "MK-cell-4")
+
 ```
 
 Load and organize a table for each library of read counts per cell per gene, and a table of umi counts per cell per gene. 
@@ -70,7 +97,7 @@ umis_to_genes <- function(umipath, cells_to_exclude = c("Cell_unmatched")){
   
   mol_fields <- str_count(umis$umi_molecule[1], "::")
   
-  if(mol_fields == 2 ){
+  if(mol_fields == 2){
     umis <- separate(umis, umi_molecule, 
                      into = c("seq", "genome", "gene"),
                      sep = "::") %>% 
@@ -113,18 +140,19 @@ umi_dat <- map(libs,
                 ~read_tsv(file.path(data_dir, 
                           .x,
                           "dgematrix",
-                          "dge_matrix.txt")))
+                          "dge_matrix.txt")) %>% 
+                 select(-Cell_unmatched))
 names(umi_dat) <- libs
 
 cell_obj_mdata <- map(cells, 
                       ~mutate(bc_metadat, 
-                              subsampled = ifelse(barcode_10x %in% .x,
+                              resampled = ifelse(barcode_10x %in% .x,
                                                   TRUE,
                                                   FALSE)))
 
 ```
 
-Next organize these tables into simple classes called `subsampled-sets` to keep track of each experiment's relavant raw, processed, and meta data. 
+Next organize these tables into simple classes called `resampled-sets` to keep track of each experiment's relavant raw, processed, and meta data. 
 
 ```{r s3ify}
 #' simple class to hold info for each experiment
@@ -132,7 +160,7 @@ create_sc_obj <- function(umi_df,
                           read_df,
                           cell_mdata_df){
   x <- list()
-  class(x) <- "subsampled-set"
+  class(x) <- "resampled-set"
   x$umis <- umi_df
   x$reads <- read_df
   x$meta_dat <- cell_mdata_df
@@ -255,22 +283,34 @@ sc_objs <- map(sc_objs,
 
 ```
 
-## plot cDNA duplication rate
+## cDNA duplication rate
 
 ```{r cDNA_duplication_rate, fig.cap="Note the high level of sequencing saturation (0 = no-duplication, 1 = all duplicates) in the original library. Also note that the libraries tend to have higher saturatioin rates, after subsampling."}
 sc_metadat <- map(sc_objs, ~.x$meta_dat) %>% 
-  bind_rows(.id = "library") 
+  bind_rows(.id = "library") %>% 
+  mutate(library = factor(library, levels = libs)) %>% 
+  arrange(resampled)
 
-ggplot(sc_metadat, aes(total_reads, cDNA_duplication)) +
-  geom_point(aes(color = subsampled)) +
-  labs(x = expression(paste("Read count (log"[10],")")),
+plt <- ggplot(sc_metadat, aes(total_umis, cDNA_duplication)) +
+  geom_point(aes(color = resampled), size = 0.5) +
+  labs(x = expression(paste("# of UMIs")),
        y = "Sequencing saturation") + 
-  scale_x_log10() +
+  scale_x_log10(labels = scales::comma) +
   scale_color_manual(values = color_palette) +
-  facet_wrap(~library)
+  guides(colour = guide_legend(override.aes = list(size = 5))) + 
+  facet_wrap(~library,
+             labeller = labeller(library = lib_names)) +
+  theme_cowplot(font_size = 16, line_size = 1)  +
+  theme(legend.position = "top",
+        plot.margin = unit(c(5.5, 20.5, 5.5, 5.5), 
+                           "points")) 
+
+plt
+save_plot("cDNA_duplication.pdf", plt, 
+          base_aspect_ratio = 1.25)
 ```
 
-## plot read and umi counts per library
+## Read and umi counts per library
 
 ```{r plot_read_and_umi_counts,}
 
@@ -279,65 +319,65 @@ global_plot_theme <- theme(
         legend.text = element_text(size = 10),
         strip.text = element_text(size = 8))
 
-subsampled_metadat <- sc_metadat[sc_metadat$library != reflib, ] %>% 
+resampled_metadat <- sc_metadat[sc_metadat$library != reflib, ] %>% 
   mutate(library = factor(library, 
-                          levels = c(subsampled_libs)))
+                          levels = c(resampled_libs)))
 
-unnorm_plt <- ggplot(subsampled_metadat, 
+unnorm_plt <- ggplot(resampled_metadat, 
                      aes(og_total_reads / 3, total_reads / 3, 
-                         colour = subsampled)) + 
+                         colour = resampled)) + 
   geom_point(size = 0.5) + 
   geom_abline(slope = 1) +
   facet_wrap(~library, nrow = 1) + 
 #  coord_fixed() +
   xlab("original library\nreads count (Thousands)") +
-  ylab("subsampled library\nreads count (Thousands)") +
+  ylab("resampled library\nreads count (Thousands)") +
  # ggtitle("Raw reads associated with each cell barcode") +
-  scale_colour_manual(name = "subsampled:",
+  scale_colour_manual(name = "resampled:",
                       values = color_palette) +
   theme_cowplot(font_size = 10, line_size = .5) +
   theme(aspect.ratio = 1) + 
   global_plot_theme
 
-norm_plt <- ggplot(subsampled_metadat, aes(og_norm_total_reads / 1e3, 
+norm_plt <- ggplot(resampled_metadat, aes(og_norm_total_reads / 1e3, 
                                            norm_total_reads / 1e3, 
-                                           colour = subsampled)) + 
+                                           colour = resampled)) + 
   geom_point(size = 0.5) + 
   geom_abline(slope = 1) + 
   facet_wrap(~library, nrow = 1) + 
   xlab("original library\nRPM (Thousands)") +
-  ylab("subsampled library\nRPM (Thousands)") +
-  scale_colour_manual(name = "subsampled:",
+  ylab("resampled library\nRPM (Thousands)") +
+  scale_colour_manual(name = "resampled:",
                       values = color_palette) +
   theme_cowplot(font_size = 10, line_size = 0.5) +
   theme(aspect.ratio = 1) + 
   global_plot_theme
 
-unnorm_umi_plt <- ggplot(subsampled_metadat, 
+unnorm_umi_plt <- ggplot(resampled_metadat, 
                          aes(og_total_umis / 1e3, 
-                             total_umis / 1e3, colour = subsampled)) + 
+                             total_umis / 1e3, colour = resampled)) + 
   geom_point(size = 0.5) + 
   geom_abline(slope = 1) +
  # coord_fixed() +
   facet_wrap(~library, nrow = 1) + 
   xlab("original library\nUMI count (Thousands)") +
-  ylab("subsampled library\nUMI count (Thousands)") +
-  scale_colour_manual(name = "subsampled:",
+  ylab("resampled library\nUMI count (Thousands)") +
+  scale_colour_manual(name = "resampled:",
                       values = color_palette) +
   theme_cowplot(font_size = 10, line_size = .5) +
     theme(aspect.ratio = 1) + 
   global_plot_theme
 
-norm_umi_plt <- ggplot(subsampled_metadat, 
+norm_umi_plt <- ggplot(resampled_metadat, 
                        aes(og_norm_total_umis / 1e3, 
                            norm_total_umis / 1e3,
-                           colour = subsampled)) + 
+                           colour = resampled)) + 
   geom_point(size = 0.5) + 
   geom_abline(slope = 1) + 
   facet_wrap(~library, nrow = 1) + 
   xlab("original library\nUMI normalized RPM (Thousands)") +
-  ylab("subsampled library\nUMIs per Million (Thousands)") +
-  scale_colour_manual(name = "subsampled:",
+  ylab("resampled library\nUMIs per Million (Thousands)") +
+  scale_colour_manual(name = "resampled:",
                       values = color_palette) +
   theme_cowplot(font_size = 10, line_size = 0.5) +
   theme(aspect.ratio = 1) + 
@@ -351,28 +391,29 @@ save_plot("reads_per_barcode_scatterplots.pdf", plt,
           nrow = 2, ncol = 2, base_width = 8 )
 ```
 
-## Plot enrichment of reads/umis 
+## Enrichment of reads/umis 
+
 ```{r plot_ratio_reads_counts, fig.width=6, fig.height=5}
 
-read <- ggplot(subsampled_metadat, 
-       aes(cell_id, norm_read_proportion, colour = subsampled)) + 
+read <- ggplot(resampled_metadat, 
+       aes(cell_id, norm_read_proportion, colour = resampled)) + 
   geom_point() + 
   labs(x = "Cell", 
        y = expression(paste( " Log"[2], " normalized reads ", 
-                             frac("subsampled", "original")))) +
-  scale_colour_manual(name = "subsampled:", values = color_palette) +
+                             frac("resampled", "original")))) +
+  scale_colour_manual(name = "resampled:", values = color_palette) +
   facet_wrap(~library, nrow = 1) + 
   theme_cowplot(font_size = 16, line_size = 1) +
   theme(axis.text.x = element_blank(),
         legend.position = "top",
         legend.text = element_text(size = 12))
 
-umi <- ggplot(subsampled_metadat, 
-       aes(cell_id, norm_umi_proportion, colour = subsampled)) + 
+umi <- ggplot(resampled_metadat, 
+       aes(cell_id, norm_umi_proportion, colour = resampled)) + 
   geom_point() + 
   labs(x = "Cell", 
-       y = expression(paste( "Log"[2], " normalized UMIs ", frac("subsampled", "original")))) +
-  scale_colour_manual(name = "subsampled:", values = color_palette) +
+       y = expression(paste( "Log"[2], " normalized UMIs ", frac("resampled", "original")))) +
+  scale_colour_manual(name = "resampled:", values = color_palette) +
   facet_wrap(~library, nrow = 1) + 
   theme_cowplot(font_size = 16, line_size = 1) +
   theme(axis.text.x = element_blank(),
@@ -386,12 +427,12 @@ plt
 
 ggsave("reads_umi_ratio_per_barcode_normalized.pdf", width = 8, height = 5)
 
-umi <- ggplot(filter(subsampled_metadat, library %in% subsampled_libs), 
-       aes(cell_id, norm_umi_proportion, colour = subsampled)) + 
+umi <- ggplot(filter(resampled_metadat, library %in% resampled_libs), 
+       aes(cell_id, norm_umi_proportion, colour = resampled)) + 
   geom_point() + 
   labs(x = "Cell", 
-       y = expression(paste( "Log"[2], " normalized UMIs ", frac("subsampled", "original")))) +
-  scale_colour_manual(name = "subsampled:", values = color_palette) +
+       y = expression(paste( "Log"[2], " normalized UMIs ", frac("resampled", "original")))) +
+  scale_colour_manual(name = "resampled:", values = color_palette) +
   facet_wrap(~library, nrow = 1) + 
   theme_cowplot(font_size = 16, line_size = 1) +
   theme(axis.text.x = element_blank(),
@@ -401,32 +442,38 @@ umi <- ggplot(filter(subsampled_metadat, library %in% subsampled_libs),
 umi
 ggsave("umi_ratio_per_cell.pdf", umi, width =5, height = 5)
 
-umi <- ggplot(filter(subsampled_metadat, library %in% subsampled_libs), 
-       aes(og_total_umis, umi_proportion, colour = subsampled)) + 
-  geom_point() + 
-  labs(x = "Original Library UMIs", 
+umi_plots <- map(split(resampled_metadat, resampled_metadat$library),
+  function(x){
+    ggplot(x, 
+       aes(og_total_umis, norm_umi_proportion, colour = resampled)) + 
+  geom_point(size = 0.5) + 
+  geom_hline(aes(yintercept = 0), 
+             linetype ="dashed", 
+             color = "darkgrey") + 
+  labs(x = "Abundance in original library\n (UMIs)", 
        y = expression(paste( "Log"[2], " UMIs ", 
-                             frac("subsampled", "original")))) +
-  scale_colour_manual(name = "subsampled:", values = color_palette) +
-  facet_wrap(~library, nrow = 1) + 
+                             frac("resampled", "original")))) +
+  scale_x_continuous(labels = scales::comma) +      
+  scale_colour_manual(name = "resampled:", values = color_palette) +
+  guides(colour = guide_legend(override.aes = list(size = 5))) + 
   theme_cowplot(font_size = 16, line_size = 1) +
   theme(legend.position = "top",
-        legend.text = element_text(size = 12))
+        legend.text = element_text(size = 12),
+        plot.margin = unit(c(5.5, 20.5, 5.5, 5.5),
+                           "points"))})
 
-umi
-ggsave("umi_ratio_MA.pdf", umi, width =5, height = 5)
+plt <- plot_grid(plotlist = umi_plots, nrow = 1)
+save_plot("umi_ratio_MA.pdf", plt)
 ```
 
-  
-  
 ```{r per_cell_ratio_reads_counts}
-ggplot(subsampled_metadat, aes(subsampled, 
-                read_proportion, fill = subsampled)) + 
+ggplot(resampled_metadat, aes(resampled, 
+                read_proportion, fill = resampled)) + 
   geom_boxplot(coef = Inf) + 
   facet_wrap(~library, nrow = 1) +
   xlab("Selected for Reamplification") +
-  ylab(expression(paste( "Log"[2], " Reads ", frac("subsampled", "original")))) +
-  scale_fill_manual(name = "subsampled:",
+  ylab(expression(paste( "Log"[2], " Reads ", frac("resampled", "original")))) +
+  scale_fill_manual(name = "resampled:",
                     values = color_palette) +
   theme_cowplot(font_size = 16, line_size = 0.5) +
   theme(
@@ -437,13 +484,13 @@ ggplot(subsampled_metadat, aes(subsampled,
   )
 ggsave("reads_ratio_per_barcode_boxplot.pdf", width = 6, height = 5)
 
-ggplot(subsampled_metadat, aes(subsampled, 
-                umi_proportion, fill = subsampled)) + 
+ggplot(resampled_metadat, aes(resampled, 
+                umi_proportion, fill = resampled)) + 
   geom_boxplot(coef = Inf) + 
   facet_wrap(~library, nrow = 1) +
   xlab("Selected for Reamplification") +
-  ylab(expression(paste( "Log"[2], " UMIs ", frac("subsampled", "original")))) +
-  scale_fill_manual(name = "subsampled:",
+  ylab(expression(paste( "Log"[2], " UMIs ", frac("resampled", "original")))) +
+  scale_fill_manual(name = "resampled:",
                     values = color_palette) +
   theme_cowplot(font_size = 16, line_size = 0.5) +
   theme(
@@ -454,13 +501,13 @@ ggplot(subsampled_metadat, aes(subsampled,
   )
 ggsave("umi_ratio_per_barcode_boxplot.pdf", width = 6, height = 5)
 
-ggplot(subsampled_metadat, aes(subsampled, 
-                norm_read_proportion, fill = subsampled)) + 
+ggplot(resampled_metadat, aes(resampled, 
+                norm_read_proportion, fill = resampled)) + 
   geom_boxplot(coef = Inf) + 
   facet_wrap(~library, nrow = 1) +
   xlab("Selected for Reamplification") +
-  ylab(expression(paste( "Log"[2], " normalized Reads ", frac("subsampled", "original")))) +
-  scale_fill_manual(name = "subsampled:",
+  ylab(expression(paste( "Log"[2], " normalized Reads ", frac("resampled", "original")))) +
+  scale_fill_manual(name = "resampled:",
                     values = color_palette) +
   theme_cowplot(font_size = 16, line_size = 0.5) +
   theme(
@@ -471,13 +518,13 @@ ggplot(subsampled_metadat, aes(subsampled,
   )
 ggsave("norm_reads_ratio_per_barcode_boxplot.pdf", width = 6, height = 5)
 
-ggplot(subsampled_metadat, aes(subsampled, 
-                norm_umi_proportion, fill = subsampled)) + 
+ggplot(resampled_metadat, aes(resampled, 
+                norm_umi_proportion, fill = resampled)) + 
   geom_boxplot(coef = Inf) + 
   facet_wrap(~library, nrow = 1) +
   xlab("Selected for Reamplification") +
-  ylab(expression(paste( "Log"[2], " normalized UMIs ", frac("subsampled", "original")))) +
-  scale_fill_manual(name = "subsampled:",
+  ylab(expression(paste( "Log"[2], " normalized UMIs ", frac("resampled", "original")))) +
+  scale_fill_manual(name = "resampled:",
                     values = color_palette) +
   theme_cowplot(font_size = 16, line_size = 0.5) +
   theme(
@@ -492,24 +539,24 @@ ggsave("norm_umi_ratio_per_barcode_boxplot.pdf", width = 6, height = 5)
 
 ```{r  total_read_enrichment}
 
-dat <- group_by(subsampled_metadat, library) %>%
+dat <- group_by(resampled_metadat, library) %>%
   filter(library != reflib) %>% 
   mutate(total_new = sum(total_reads, na.rm = T), 
          total_old = sum(og_total_reads, na.rm = T))
 
-dat_group <- group_by(dat, library, subsampled) %>% 
+dat_group <- group_by(dat, library, resampled) %>% 
   summarize(total_new = sum(total_reads, 
                             na.rm = T) / unique(total_new), 
             total_old = sum(og_total_reads, 
                             na.rm = T) / unique(total_old)) %>% 
-  gather(lib, percent_lib, -library, -subsampled ) %>%
+  gather(lib, percent_lib, -library, -resampled ) %>%
   mutate(lib = factor(lib, levels = c("total_old", "total_new"), 
-                      labels = c("original\nlibrary", "subsampled\nlibrary")))
+                      labels = c("original\nlibrary", "resampled\nlibrary")))
 
-ggplot(dat_group, aes(lib, percent_lib, fill = subsampled)) + 
+ggplot(dat_group, aes(lib, percent_lib, fill = resampled)) + 
   geom_bar(stat = "identity") + 
   ylab("Fraction of\n Reads Assigned") +
-  scale_fill_manual(name = "subsampled:",
+  scale_fill_manual(name = "resampled:",
                     values = color_palette) +
   facet_wrap(~library) + 
   theme_cowplot(font_size = 16, line_size = 1) +
@@ -525,8 +572,8 @@ ggsave("proportion_reads_all_barcode_barplot.pdf", width = 7, height = 7)
 dat_group %>% 
  rename(Method = library) %>% 
   spread(lib, percent_lib) %>% 
-  mutate(`Targeted Library Read Fold-Enrichment` = `subsampled\nlibrary` / `original\nlibrary`) %>%
-  filter(subsampled == T) %>% 
+  mutate(`Targeted Library Read Fold-Enrichment` = `resampled\nlibrary` / `original\nlibrary`) %>%
+  filter(resampled == T) %>% 
   select(Method, `Targeted Library Read Fold-Enrichment`)
 ```
 
@@ -548,27 +595,27 @@ sc_objs <- map(sc_objs, ~detected_molecules(.x))
 ```
 
 ```{r gene_plot}
-subsampled_metadat <- map(sc_objs, ~.x$meta_dat) %>% 
+resampled_metadat <- map(sc_objs, ~.x$meta_dat) %>% 
   bind_rows(.id = "library") %>% 
    mutate(library = factor(library, 
                            levels = libs))
 
-og_genes <- filter(subsampled_metadat, 
+og_genes <- filter(resampled_metadat, 
                    library == reflib) %>% 
   dplyr::select(cell_id, 
                 og_genes = n_genes)
 
-subsampled_metadat <- left_join(subsampled_metadat, 
+resampled_metadat <- left_join(resampled_metadat, 
                                 og_genes,
                                 by = "cell_id") %>% 
   filter(library != reflib)
 
-plt <- ggplot(subsampled_metadat, aes(og_genes, 
-                               n_genes, colour = subsampled)) + 
+plt <- ggplot(resampled_metadat, aes(og_genes, 
+                               n_genes, colour = resampled)) + 
   geom_point(size = 0.5) + 
-  ylab("Genes detected\n(subsampled library)") +
+  ylab("Genes detected\n(resampled library)") +
   xlab("Genes detected\n(original library)") + 
-  scale_colour_manual(name =  "subsampled:", values = color_palette) +
+  scale_colour_manual(name =  "resampled:", values = color_palette) +
   facet_wrap(~library, nrow = 1) + 
   guides(colour = guide_legend(override.aes = list(size = 3))) +
   theme(
@@ -667,7 +714,7 @@ sc_objs <- map(sc_objs,
              x
            })
 
-subsampled_metadat <- map(sc_objs, ~.x$meta_dat) %>% 
+resampled_metadat <- map(sc_objs, ~.x$meta_dat) %>% 
   bind_rows(.id = "library") %>% 
    mutate(library = factor(library, 
                           levels = libs))
@@ -676,24 +723,24 @@ subsampled_metadat <- map(sc_objs, ~.x$meta_dat) %>%
 
 ```{r per_cell_gene_recovery}
 
-genes_recovered <- subsampled_metadat %>% 
+genes_recovered <- resampled_metadat %>% 
   dplyr::filter(library != reflib) %>% 
   dplyr::select(cell_id, 
                 library,
-                subsampled,
+                resampled,
                 shared_genes,
                 not_recovered_genes, 
                 new_genes)
 
 genes_recovered <- gather(genes_recovered, 
                           key = type, value = count, 
-                          -cell_id, -subsampled, -library)
+                          -cell_id, -resampled, -library)
 genes_recovered <- mutate(genes_recovered,
                           type = str_replace_all(type, "_", "\n"))
 
 plt <- ggplot(genes_recovered, 
        aes(cell_id, count)) +
-  geom_point(aes(color = subsampled),
+  geom_point(aes(color = resampled),
              size = 0.6,
              alpha = 0.75) +
   facet_grid(type ~ library) +
@@ -708,30 +755,45 @@ plt
 save_plot("new_genes_detected.pdf", plt, base_width = 8, base_height = 8)
 
 targeted <- genes_recovered %>% 
-  dplyr::filter(library %in% subsampled_libs,
-                subsampled) 
+  dplyr::filter(library %in% resampled_libs,
+                resampled) 
 targeted
 
 plt_dat <- genes_recovered %>% 
-  dplyr::filter(!library %in% subsampled_libs,
-                subsampled) %>% 
+  dplyr::filter(!resampled) %>% 
   group_by(type) %>% 
   summarize(count = mean(count)) %>% 
-  mutate(cell_id = "Not Targeted Barcodes") %>% 
+  mutate(cell_id = "Not targeted\nbarcodes\n(mean)") %>% 
   bind_rows(targeted, .) %>% 
-  filter(type == "new\ngenes")
+  mutate(type = ifelse(type == "new\ngenes",
+                        "Newly\ndetected\ngenes",
+                        ifelse(type == "shared\ngenes",
+                               "Previously\ndetected\ngenes",
+                               ifelse(type == "not\nrecovered\ngenes",
+                                      "Previously\ndetected\ngenes\nnot recovered",
+                                      NA))),
+         cell_id = factor(cell_id, 
+                          levels = c(str_c(cells[[subsampled_lib]],
+                                           "-1"), 
+                          "Not targeted\nbarcodes\n(mean)")))
 
 
 plt <- ggplot(plt_dat, 
        aes(cell_id, count)) +
-  geom_bar(aes(fill = cell_id),
+  geom_bar(aes(fill = type),
            stat = "identity") +
-  labs(y = "Newly detected genes") + 
+  labs(y = "# of genes") + 
+  scale_x_discrete(labels = cell_names) + 
+  scale_y_continuous(labels = scales::comma) + 
+  scale_fill_brewer(palette = "Set1", name = "") +
+  guides(fill = guide_legend(override.aes = list(size = 0.25))) +
   theme(axis.title.x = element_blank(),
         axis.text.x = element_text(angle = 45,
                                    hjust = 1),
-        legend.position = "none") +
-  scale_fill_brewer(palette = "Set1")
+        legend.position = "top",
+        plot.margin = unit(c(5.5, 50.5, 5.5, 5.5), 
+                           "points"))
+      #  legend.key.size = unit(0.25, "pt")) 
 
 plt
 save_plot("new_genes_barplot.pdf", plt, 
@@ -740,6 +802,24 @@ save_plot("new_genes_barplot.pdf", plt,
 ```
 
 
+```{r shared_new_genes}
+new_genes <- sc_objs$mkcell_pulldown$new_genes[str_c(cells$mkcell_pulldown,
+                                                     "-1")]
+
+all_genes <- unique(unlist(new_genes))
+
+library(UpSetR)
+pdf("new_genes_shared.pdf")
+  upset(fromList(new_genes), order.by = "freq")
+dev.off()
+
+upset(fromList(new_genes), order.by = "freq")
+```
+
+
+
+
+Compare new genes to previously detected genes in the cluster
 
 ### Plot expression per cell 
 
@@ -755,7 +835,7 @@ calc_ma <- function(xmat, ymat, cell = "GCAGTTAAGTGTCCAT"){
   
   rownames(xmat) <- x_rn
   rownames(ymat) <- y_rn
-  m <- rowMeans(log2(((2^ymat + 2^xmat) / 2) + 1))
+  m <- Matrix::rowMeans(log2(((2^ymat + 2^xmat) / 2) + 1))
   a <- xmat[, cell] - ymat[, cell]
   data_frame(gene = names(a),
              mean_expression_log2 = m,
@@ -763,16 +843,16 @@ calc_ma <- function(xmat, ymat, cell = "GCAGTTAAGTGTCCAT"){
 }
 
 
-genes_to_plot <- rownames(sc_objs$mkcell_pulldown$umi_matrix)
-cols <- colnames(sc_objs[[subsampled_lib]]$norm_umi)
-cell_ids <- str_c(cells[[subsampled_lib]], "-1")
+genes_to_plot <- rownames(sc_objs[[resampled_lib]]$umi_matrix)
+cols <- colnames(sc_objs[[resampled_lib]]$norm_umi)
+cell_ids <- str_c(cells[[resampled_lib]], "-1")
 
 ## append genes to reference library if necessary
-ref_mat <- standardize_rows(sc_objs[[subsampled_lib]]$umi_matrix[, cols],
+ref_mat <- standardize_rows(sc_objs[[resampled_lib]]$umi_matrix[, cols],
                             sc_objs[[reflib]]$umi_matrix[, cols])
 
 ma_dat <- map(cell_ids,
-    ~calc_ma(sc_objs[[subsampled_lib]]$umi_matrix[genes_to_plot, cols], 
+    ~calc_ma(sc_objs[[resampled_lib]]$umi_matrix[genes_to_plot, cols], 
              ref_mat[genes_to_plot, cols],
              cell = .x))
 
@@ -805,7 +885,7 @@ plot_ma <- function(df){
                                  label = n)) + 
     facet_wrap(~cell) +
     labs(x = expression(paste("Abundance (log"[2], ")")),
-         y = expression(paste(frac("Subsampled","Original"), " (log"[2], ")")))
+         y = expression(paste(frac("resampled","Original"), " (log"[2], ")")))
   plt
 }
 
@@ -816,8 +896,8 @@ save_plot("per_cell_MA_plot_all_genes.pdf", plt, base_height = 6)
 ## Shared genes
 ma_dat <- map(cell_ids,
   function(x){
-    genes_to_plot <- sc_objs[[subsampled_lib]]$shared_genes[[x]]
-    calc_ma(sc_objs[[subsampled_lib]]$umi_matrix[genes_to_plot,
+    genes_to_plot <- sc_objs[[resampled_lib]]$shared_genes[[x]]
+    calc_ma(sc_objs[[resampled_lib]]$umi_matrix[genes_to_plot,
                                                               cols],
             ref_mat[genes_to_plot, cols],
              cell = x)
@@ -833,8 +913,8 @@ save_plot("per_cell_MA_plot_shared_genes.pdf", plt, base_height = 6)
 ## New genes
 ma_dat <- map(cell_ids,
   function(x){
-    genes_to_plot <- sc_objs[[subsampled_lib]]$new_genes[[x]]
-    calc_ma(sc_objs[[subsampled_lib]]$umi_matrix[genes_to_plot,
+    genes_to_plot <- sc_objs[[resampled_lib]]$new_genes[[x]]
+    calc_ma(sc_objs[[resampled_lib]]$umi_matrix[genes_to_plot,
                                                               cols],
             ref_mat[genes_to_plot, cols],
              cell = x)
@@ -859,7 +939,7 @@ get_expr <- function(xmat, ymat, cell = "GCAGTTAAGTGTCCAT"){
   ymat <- log2(ymat[xrows, cell] + 1)
   data_frame(
     gene = xrows,
-    subsampled = xmat,
+    resampled = xmat,
     original = ymat) %>% 
     gather(library, 
            Expression, -gene)
@@ -878,8 +958,8 @@ plot_histogram <- function(df){
 
 expr_dat <- map(cell_ids,
   function(x){
-    genes_to_plot <- names(sc_objs[[subsampled_lib]]$genes_detected[[x]])
-    get_expr(sc_objs[[subsampled_lib]]$umi_matrix[genes_to_plot,
+    genes_to_plot <- names(sc_objs[[resampled_lib]]$genes_detected[[x]])
+    get_expr(sc_objs[[resampled_lib]]$umi_matrix[genes_to_plot,
                                                               cols],
             ref_mat[genes_to_plot, cols],
              cell = x)
@@ -887,13 +967,13 @@ expr_dat <- map(cell_ids,
 
 names(expr_dat) <- cell_ids
 expr_dat <- bind_rows(expr_dat, .id = "cell")
-expressed_in_subsampled_plt <- plot_histogram(expr_dat)
-expressed_in_subsampled_plt
+expressed_in_resampled_plt <- plot_histogram(expr_dat)
+expressed_in_resampled_plt
 
 expr_dat <- map(cell_ids,
   function(x){
-    genes_to_plot <- sc_objs[[subsampled_lib]]$shared_genes[[x]]
-    get_expr(sc_objs[[subsampled_lib]]$umi_matrix[genes_to_plot,
+    genes_to_plot <- sc_objs[[resampled_lib]]$shared_genes[[x]]
+    get_expr(sc_objs[[resampled_lib]]$umi_matrix[genes_to_plot,
                                                               cols],
             ref_mat[genes_to_plot, cols],
              cell = x)
@@ -906,8 +986,8 @@ share_genes_plt
 
 expr_dat <- map(cell_ids,
   function(x){
-    genes_to_plot <- sc_objs[[subsampled_lib]]$new_genes[[x]]
-    get_expr(sc_objs[[subsampled_lib]]$umi_matrix[genes_to_plot,
+    genes_to_plot <- sc_objs[[resampled_lib]]$new_genes[[x]]
+    get_expr(sc_objs[[resampled_lib]]$umi_matrix[genes_to_plot,
                                                               cols],
             ref_mat[genes_to_plot, cols],
              cell = x)
@@ -919,7 +999,7 @@ new_gene_plt <- plot_histogram(expr_dat)
 
 
 plts <- list(
-  expressed_in_subsampled_plt,
+  expressed_in_resampled_plt,
   share_genes_plt,
   new_gene_plt
 )
@@ -936,20 +1016,20 @@ save_plot("expression_histograms.pdf", plt,
 
 #### scatterplots
 
-```{r get_expr}
+```{r get_expr_scat}
 get_paired_expr <- function(xmat, ymat, cell = "GCAGTTAAGTGTCCAT"){
   xrows <- rownames(xmat)
   xmat <- log2(xmat[, cell] + 1)
   ymat <- log2(ymat[xrows, cell] + 1)
   data_frame(
     gene = xrows,
-    subsampled = xmat,
+    resampled = xmat,
     original = ymat)
 }
 
 plot_scatter <- function(df){
   ggplot(df, 
-         aes_string("original", "subsampled")) +
+         aes_string("original", "resampled")) +
     geom_point(size = 0.5) + 
     geom_abline(aes(slope = 1, intercept = 0)) +
     facet_wrap(~cell, nrow = 1) +
@@ -960,8 +1040,8 @@ plot_scatter <- function(df){
 
 expr_dat <- map(cell_ids,
   function(x){
-    genes_to_plot <- names(sc_objs[[subsampled_lib]]$genes_detected[[x]])
-    get_paired_expr(sc_objs[[subsampled_lib]]$umi_matrix[genes_to_plot,
+    genes_to_plot <- names(sc_objs[[resampled_lib]]$genes_detected[[x]])
+    get_paired_expr(sc_objs[[resampled_lib]]$umi_matrix[genes_to_plot,
                                                               cols],
             ref_mat[genes_to_plot, cols],
              cell = x)
@@ -969,13 +1049,13 @@ expr_dat <- map(cell_ids,
 
 names(expr_dat) <- cell_ids
 expr_dat <- bind_rows(expr_dat, .id = "cell")
-expressed_in_subsampled_plt <- plot_scatter(expr_dat)
-expressed_in_subsampled_plt
+expressed_in_resampled_plt <- plot_scatter(expr_dat)
+expressed_in_resampled_plt
 
 expr_dat <- map(cell_ids,
   function(x){
-    genes_to_plot <- sc_objs[[subsampled_lib]]$shared_genes[[x]]
-    get_paired_expr(sc_objs[[subsampled_lib]]$umi_matrix[genes_to_plot,
+    genes_to_plot <- sc_objs[[resampled_lib]]$shared_genes[[x]]
+    get_paired_expr(sc_objs[[resampled_lib]]$umi_matrix[genes_to_plot,
                                                               cols],
             ref_mat[genes_to_plot, cols],
              cell = x)
@@ -988,8 +1068,8 @@ share_genes_plt
 
 expr_dat <- map(cell_ids,
   function(x){
-    genes_to_plot <- sc_objs[[subsampled_lib]]$new_genes[[x]]
-    get_paired_expr(sc_objs[[subsampled_lib]]$umi_matrix[genes_to_plot,
+    genes_to_plot <- sc_objs[[resampled_lib]]$new_genes[[x]]
+    get_paired_expr(sc_objs[[resampled_lib]]$umi_matrix[genes_to_plot,
                                                               cols],
             ref_mat[genes_to_plot, cols],
              cell = x)
@@ -997,10 +1077,10 @@ expr_dat <- map(cell_ids,
 
 names(expr_dat) <- cell_ids
 expr_dat <- bind_rows(expr_dat, .id = "cell")
-new_gene_plt <- ggplot(expr_dat, aes(cell,subsampled)) +
+new_gene_plt <- ggplot(expr_dat, aes(cell,resampled)) +
   geom_jitter(alpha = 0.55) +
   geom_violin(aes(fill = cell)) +
-  ylim(0, max(expr_dat$subsampled) * 1.10) + 
+  ylim(0, max(expr_dat$resampled) * 1.10) + 
   scale_fill_brewer(palette = "Set1") +
     theme(axis.text.x = element_text(angle = 90, 
                                      hjust = 1, vjust = 0.5),
@@ -1010,7 +1090,7 @@ new_gene_plt <- ggplot(expr_dat, aes(cell,subsampled)) +
 new_gene_plt
 
 plts <- list(
-  expressed_in_subsampled_plt,
+  expressed_in_resampled_plt,
   share_genes_plt
 )
 
@@ -1089,21 +1169,21 @@ umi_summary <- bind_rows(umi_summaries, .id = "library")
 umis_recovered <- umi_summary %>% 
   gather(class, count, -barcode_10x, -library) 
 
-## annotate with subsampled or not
+## annotate with resampled or not
 cell_annot <- data_frame(barcode_10x = cells,
                          library = libs,
-                         subsampled = T) %>% 
+                         resampled = T) %>% 
   unnest()
 
 umis_recovered <- umis_recovered %>% 
-  mutate(subsampled = ifelse(str_replace(barcode_10x, "-1", "") %in% unlist(cells),
+  mutate(resampled = ifelse(str_replace(barcode_10x, "-1", "") %in% unlist(cells),
                              T,
                              F)) %>% 
-  arrange(subsampled)
+  arrange(resampled)
 
 plt <- ggplot(umis_recovered, 
        aes(barcode_10x, count)) +
-  geom_point(aes(colour = subsampled),
+  geom_point(aes(colour = resampled),
              size = 0.6,
              alpha = 0.75) +
   facet_grid(library ~ class) +
@@ -1164,9 +1244,12 @@ ggplot(umi_edit_dist, aes(barcode_10x,
                                    vjust = 0.5),
         axis.title.x = element_blank())
 
-rm(umi_seqs)
+
 ```
 
+```{r save_obs}
+saveRDS(sc_objs, "sc_objs.rds")
+```
 ## tSNE analysis
 
 ### original library tSNE
@@ -1175,45 +1258,222 @@ rm(umi_seqs)
 library(Seurat)
 
 mat <- sc_objs[[reflib]]$umi_matrix
-sobj <- CreateSeuratObject(mat)
+sobj <- CreateSeuratObject(mat, min.genes = 200)
 sobj <- NormalizeData(sobj)
-sobj <- ScaleData(sobj, vars.to.regress = "nUMI")
-sobj <- FindVariableGenes(sobj, do.plot = F)
-sobj <- RunPCA(sobj, pc.genes = sobj@var.genes, pcs.compute = 20, do.print = F)
-sobj <- RunTSNE(sobj, dims.use = 1:18, seed.use = 20180516)
-sobj <- FindClusters(sobj, dims.use = 1:18, resolution = 0.6, 
+
+sobj <- ScaleData(sobj)
+sobj <- FindVariableGenes(sobj, do.plot = T, y.cutoff = 0.25)
+sobj <- RunPCA(sobj, pc.genes = rownames(sobj@data), 
+               pcs.compute = 20, 
+               do.print = F, seed.use = 20180525)
+sobj <- RunTSNE(sobj, dims.use = 1:15, seed.use = 20180525)
+sobj <- FindClusters(sobj,
+                     dims.use = 1:15, 
+                     k.param = 15,
+                     resolution = 1.2, 
                      print.output = F, 
-                     random.seed = 20180516)
+                     random.seed = 20180525)
 ```
 
 ```{r plt_tsne}
 plt <- TSNEPlot(sobj, 
-                colors.use = brewer.pal(12, "Paired"),
+                colors.use = c(brewer.pal(12, "Paired"), 
+                               brewer.pal(9, "Set1")),
                 do.label = T) + 
   labs(title = "PBMCs") +
   theme(legend.position = "none")
+
 plt
-save_plot("original_mkcells_tsne.pdf", plt, base_height = 4.25, base_width = 4.25)
+save_plot("original_mkcells_tsne.pdf", plt, 
+          base_height = 4.25, base_width = 4.25)
+
+cell_mdata <- sobj@meta.data %>% 
+  tibble::rownames_to_column("cell") %>% 
+  mutate(resampled = ifelse(cell %in% str_c(cells$mkcell_pulldown, "-1"), 
+                             T,
+                             F)) %>% 
+  select(cell, resampled) %>% 
+  as.data.frame() %>% 
+  tibble::column_to_rownames("cell") 
+
+sobj <- AddMetaData(sobj, cell_mdata, col.name = "resampled")
+
+sobj <- SetAllIdent(sobj, "resampled")
+
+plt <- TSNEPlot(sobj, 
+                colors.use = c(brewer.pal(12, "Paired"), 
+                               brewer.pal(9, "Set1")),
+                do.label = F, 
+                pt.size = 0.5) + 
+  theme(legend.position = "none")
+plt
+save_plot("original_selected_mkcells_tsne.pdf", plt, 
+          base_height = 4.25, base_width = 4.25)
 ```
+
+```{r pbmc_markers}
+immune_markers <- c(t_cells = "CD3E", 
+                    cd8_t ="CD8A", 
+                    cytotoxic_t = "NKG7", 
+                    dendritic = "FCER1A", 
+                    megakaryocyte = "PF4", 
+                    b_cell = "CD79A", 
+                    cd4_4 = "IL7R", 
+                    monocyte = "CD14",
+                    RBC = "HBB",
+                    NK = "NCAM1",
+                    pDC = "LILRA4",
+                    monocyte = "FCGR3A")
+
+plts <- map(immune_markers, ~plot_feature(sobj, gene = .x, 
+                                          pt.alpha = 1))
+plt <- plot_grid(plotlist = plts,  nrow = 4)
+save_plot("og_tsne_markers.pdf", plt,
+          nrow = 4, ncol = 3)
+
+sobj <- SetAllIdent(sobj, "res.1.2")
+
+new_ids <- c(
+  "0" = "CD4+ T-Cells",
+  "1" = "CD8+ T-Cells",
+  "2" = "CD4+ T-Cells",
+  "3" = "CD8+ T-Cells",
+  "4" = "CD14+ Monocytes",
+  "5" = "CD8+ T-Cells",
+  "6" = "CD14+ Monocytes",
+  "7" = "FCGR3A+ Monocytes",
+  "8" = "CD14+ Monocytes",
+  "9" = "CD14+ Monocytes",
+  "10" = "Dendritic",
+  "11" = "CD4+ T-Cells",
+  "12" = "B-Cells",
+  "13" = "NK Cells",
+  "14" = "Megakaryocytes",
+  "15" = "CD8+ T-Cells",
+  "16" = "Plasmacytoid dendritic"
+)
+old_ids <- sobj@meta.data %>% 
+  rownames_to_column("cell") %>% 
+  pull("res.1.2")
+
+new_labels <- new_ids[old_ids] %>% unname()
+new_df <- data.frame(row.names = rownames(sobj@meta.data),
+                     cell_labels = new_labels)
+sobj <- AddMetaData(sobj, new_df)
+```
+
+```{r cell_percentages}
+cell_percents <- group_by(sobj@meta.data, cell_labels) %>% 
+  summarize(n_cells = n()) %>% 
+  mutate(total_cells = sum(n_cells), 
+         percentage = 100 * (n_cells / total_cells)) %>% 
+  select(-total_cells)
+
+cell_percents
+```
+
+```{r}
+# find region around the megakaryocyte cells to highlight
+tsne_dat <- GetCellEmbeddings(sobj, "tsne") %>% 
+  as.data.frame() %>% 
+  tibble::rownames_to_column("cell") %>% 
+  left_join(sobj@meta.data %>%
+              as.data.frame() %>% 
+              tibble::rownames_to_column("cell"),
+            ., by = "cell") %>% 
+  left_join(., cell_percents, by = "cell_labels") %>% 
+  mutate(cell_labels_annotated = str_c(cell_labels, 
+                            " (",
+                            signif(percentage, 3),
+                            "%)"))
+dat <- filter(tsne_dat, cell_labels == "Megakaryocytes")
+
+x_min = min(dat[, c("tSNE_1")]) - 1.5
+x_max = max(dat[, c("tSNE_1")]) + 1.5
+y_min = min(dat[, c("tSNE_2")]) - 1.5
+y_max = max(dat[, c("tSNE_2")]) + 1.5
+
+labeled_plt <- ggplot(tsne_dat, 
+  aes(tSNE_1, tSNE_2)) + 
+  geom_point(aes(color = cell_labels_annotated), size = 0.1) + 
+  scale_color_manual(values = brewer.pal(10, "Paired"),
+                     name = "") +
+  labs(title = "",
+       x = "tSNE 1",
+       y = "tSNE 2") +
+  geom_rect(aes(xmin = x_min,
+                xmax = x_max,
+                ymin = y_min,
+                ymax = y_max), alpha = 0, color = "black", 
+            size = 0.5) +
+   theme_cowplot() + 
+  guides(color = guide_legend(override.aes = list(size = 4))) + 
+  theme(legend.pos = "right",
+        aspect.ratio = 1) 
+
+
+sub_plt <- ggplot(arrange(tsne_dat, resampled), 
+  aes(tSNE_1, tSNE_2)) + 
+  geom_point(aes(color = resampled), size = 2) + 
+  scale_color_manual(values = c(brewer.pal(10, 
+                                           "Paired")[7],
+                                color_palette[2]),
+                     name = "Resampled") +
+  coord_cartesian(xlim = c(x_min, x_max),
+                  ylim = c(y_min, y_max)) +
+  guides(color = guide_legend(override.aes = list(size = 5))) + 
+  labs(x = "tSNE 1",
+       y = "tSNE 2")  +
+  theme(aspect.ratio = 1)
+
+plt <- plot_grid(labeled_plt, sub_plt, align = 'hv', 
+                 nrow = 1)
+save_plot("original_pbmc_annotated_tsne.pdf", plt, 
+          base_width = 5.5, 
+          base_aspect_ratio = 1.5, nrow = 1, ncol = 2)
+
+```
+
+
+```{r}
+saveRDS(sobj, "og_sobj.rds")
+```
+
+```{r find_mk_markers}
+
+if (!file.exists("original_pbmc_markers.txt")){
+  sobj <- SetAllIdent(sobj, "cell_labels")
+  all_markers <- FindAllMarkers(sobj)
+  write_tsv(all_markers, "original_pbmc_markers.txt")
+}
+
+all_markers <- read_tsv("original_pbmc_markers.txt")
+cell_mdata <- sobj@meta.data %>% 
+  tibble::rownames_to_column("cell") 
+
+```
+
+
 
 ### original library tSNE supplemented with resampled barcodes
 
 
-```{r subsampled_tsn, results='hide'}
+```{r resampled_tsn, results='hide'}
 
 mat <- sc_objs[[reflib]]$umi_matrix
 
-subsampled_ids <- sc_objs[[subsampled_libs]]$meta_dat %>% 
-  filter(subsampled) %>% 
+resampled_ids <- sc_objs[[resampled_libs]]$meta_dat %>% 
+  filter(resampled) %>% 
   pull(cell_id)
 
-subsampled_mat <- sc_objs[[subsampled_libs]]$umi_matrix[, subsampled_ids]
-colnames(subsampled_mat) <- str_c(colnames(subsampled_mat), "::", "subsampled")
+resampled_mat <- sc_objs[[resampled_libs]]$umi_matrix[, resampled_ids]
+colnames(resampled_mat) <- str_c(colnames(resampled_mat), 
+                                  "::", "resampled")
 
 mat <- as.data.frame(as.matrix(mat)) %>% rownames_to_column("gene")
-subsampled_mat <- as.data.frame(as.matrix(subsampled_mat)) %>% rownames_to_column("gene")
+resampled_mat <- as.data.frame(as.matrix(resampled_mat)) %>% rownames_to_column("gene")
 
-combined_mats <- left_join(mat, subsampled_mat, by = c("gene")) 
+combined_mats <- left_join(mat, resampled_mat, by = c("gene")) 
 combined_mats <- as.data.frame(combined_mats) %>% 
   column_to_rownames("gene") %>% 
   as.matrix() %>% 
@@ -1221,95 +1481,151 @@ combined_mats <- as.data.frame(combined_mats) %>%
 
 combined_mats[is.na(combined_mats)] <- 0
 
-sobj <- CreateSeuratObject(combined_mats)
+sobj <- CreateSeuratObject(combined_mats, min.genes = 200)
 
 new_ids <- sobj@meta.data %>% 
   rownames_to_column("cell") %>% 
-  mutate(subsampled = ifelse(str_detect(cell, "subsampled"),
-                             "subsampled",
-                             "not subsampled"))
+  mutate(resampled = ifelse(str_detect(cell, "resampled"),
+                             "resampled",
+                             "not resampled"))
 
-subsampled_cell_ids <- new_ids[new_ids$subsampled == "subsampled", "cell"] %>% 
-  str_replace("::subsampled", "")
+resampled_cell_ids <- new_ids[new_ids$resampled == "resampled", 
+                              "cell"] %>% 
+  str_replace("::resampled", "")
  
 new_ids <- mutate(new_ids, 
-                  subsampled = ifelse(cell %in% subsampled_cell_ids, 
+                  resampled = ifelse(cell %in% resampled_cell_ids, 
                                       "original cell",
-                                      subsampled)) %>% 
-  select(cell, subsampled) %>% 
+                                      resampled)) %>% 
+  select(cell, resampled) %>% 
   as.data.frame(.) %>% 
   column_to_rownames("cell")
 
 sobj <- AddMetaData(sobj, new_ids)
 sobj <- NormalizeData(sobj)
-sobj <- ScaleData(sobj, vars.to.regress = "nUMI")
-sobj <- FindVariableGenes(sobj, do.plot = F)
-sobj <- RunPCA(sobj, pc.genes = sobj@var.genes, pcs.compute = 20, do.print = F)
-sobj <- RunTSNE(sobj, dims.use = 1:18, seed.use = 20180516)
-sobj <- FindClusters(sobj, dims.use = 1:18, resolution = 0.6, 
+sobj <- ScaleData(sobj)
+sobj <- FindVariableGenes(sobj, do.plot = F, y.cutoff = 0.25)
+sobj <- RunPCA(sobj, pc.genes = rownames(sobj@data), 
+               pcs.compute = 20, 
+               do.print = F, seed.use = 20180605)
+sobj <- RunTSNE(sobj, dims.use = 1:15, seed.use = 20180605)
+sobj <- FindClusters(sobj,
+                     dims.use = 1:15, 
+                     resolution = 1.2, 
                      print.output = F, 
-                     random.seed = 20180516)
+                     random.seed = 20180605)
+```
+
+```{r resampled_plots}
+plt <- TSNEPlot(sobj, 
+                colors.use = c(brewer.pal(12, "Paired"), 
+                               brewer.pal(9, "Set1")),
+                do.label = T) + 
+  theme(legend.position = "none")
+plt
+save_plot("original_with_resampled_mkcells_tsne.pdf", plt, 
+          base_height = 4.25, base_width = 4.25)
+
 ```
 
 
+```{r}
+### Plot original and resampled close-up
+pf4 <- plot_feature(sobj, gene = "PF4", pt.alpha = 1, pt.size = 0.1) +
+  labs(title = "",
+       x = "tSNE 1",
+       y = "tSNE 2") + 
+  theme_cowplot() +
+  theme(legend.pos = "right")
 
-```{r subsampled_plots}
-plt <- TSNEPlot(sobj, 
-                colors.use = brewer.pal(12, "Paired"),
-                do.label = T) + 
-  labs(title = "PBMCs") +
-  theme(legend.position = "none")
-plt
-save_plot("original_with_subsampled_mkcells_tsne.pdf", plt, base_height = 4.25, base_width = 4.25)
+# find region around the resampled cells to highlight
 
-subsampled_cells <- TSNEPlot(SetAllIdent(sobj, 
-                                         "subsampled"), 
-                             colors.use = c("lightgrey",
-                                            brewer.pal(7, "Set1")[1:2])) + 
-  labs(title = "PBMC") +
-  theme(legend.position = "bottom")
+tsne_dat <- GetCellEmbeddings(sobj, "tsne") %>% 
+  as.data.frame() %>% 
+  tibble::rownames_to_column("cell") %>% 
+  left_join(sobj@meta.data %>%
+              as.data.frame() %>% 
+              tibble::rownames_to_column("cell"),
+            ., by = "cell")
 
-tmp <- subsampled_cells$data 
+og_dat <- filter(tsne_dat, resampled == "original cell")
 
-og_cell_dat <- tmp[cells[[subsampled_libs]], ] %>%
-  rownames_to_column("cell")
+sub_dat <-  filter(tsne_dat, resampled == "resampled") %>% 
+  mutate(cell = str_replace(cell, "::resampled", "")) %>% 
+  select(cell, tSNE_1_resampled = tSNE_1, tSNE_2_resampled = tSNE_2)
 
-subsampled_cell_dat <- tmp[str_c(cells[[subsampled_libs]], "::subsampled"), ] %>%
-  rownames_to_column("cell") %>% 
-  mutate(cell = str_replace(cell, "::subsampled", "")) %>% 
-  select(cell, tSNE_1, tSNE_2)
+dat <- left_join(og_dat, sub_dat, by = "cell")
 
-cell_dat <- left_join(og_cell_dat, 
-                      subsampled_cell_dat, 
-                      by = "cell", 
-                      suffix = c("", "_resampled"))
+xpos <- colMeans(as.matrix(dat[, c("tSNE_1", "tSNE_2")]) )[1]
+ypos <- colMeans(as.matrix(dat[, c("tSNE_1", "tSNE_2")]) )[2]
+x_min = xpos - 1.5
+x_max = xpos + 1.5
+y_min = ypos - 1.5
+y_max = ypos + 1.5
 
-subsampled_cells <- TSNEPlot(SetAllIdent(sobj, 
-                                         "subsampled"), 
-                             colors.use = c("lightgrey",
-                                            brewer.pal(7, "Set1")[1:2])) + 
-                  geom_segment(data = cell_dat, 
+resampled_cells <- ggplot(tsne_dat, 
+  aes(tSNE_1, tSNE_2)) + 
+  geom_point(aes(color = resampled), size = 0.1) + 
+  scale_color_manual(values = c("lightgrey",
+                                            brewer.pal(7,
+                                                       "Set1")[1:2]),
+                     name = "",
+                     labels = c("not resampled" = "Not Resampled",
+                                "original cell" = "Original Cell",
+                                "resampled" = "Resampled Cell")) +
+  geom_rect(aes(xmin = x_min,
+                xmax = x_max,
+                ymin = y_min,
+                ymax = y_max), alpha = 0, color = "black",
+            size = 0.5) +
+  labs(x = "tSNE 1", y = "tSNE 2") +
+  theme_cowplot() + 
+  guides(ncol = 1, 
+         color = guide_legend(override.aes = list(size = 4))) + 
+  theme(legend.pos = "right") 
+
+
+close_up <- ggplot(tsne_dat, 
+  aes(tSNE_1, tSNE_2)) + 
+  geom_point(aes(color = resampled), size = 2) + 
+  scale_color_manual(values = c("lightgrey",
+                                            brewer.pal(7,
+                                                       "Set1")[1:2]),
+                     name = "",
+                     labels = c("not resampled" = "Not Resampled",
+                                "original cell" = "Original Cell",
+                                "resampled" = "Resampled Cell")) +
+   coord_cartesian(xlim = c(x_min, x_max),
+                  ylim = c(y_min, y_max)) +
+  geom_segment(data = dat, 
                                aes(x = tSNE_1,
                                    y = tSNE_2, 
                                    xend = tSNE_1_resampled,
                                    yend = tSNE_2_resampled),
                                linejoin = "mitre",
-                               arrow = arrow(length = unit(0.03, "npc"))) + 
-  theme(legend.position = "bottom")
+                               arrow = arrow(length = unit(0.02,
+                                                           "npc"))) + 
+   labs(x = "tSNE 1", y = "tSNE 2") +
+  theme_cowplot() + 
+  guides(ncol = 1, 
+         color = guide_legend(override.aes = list(size = 4))) + 
+  theme(legend.pos = "right")
+  
+plt <- plot_grid(pf4, resampled_cells, 
+          close_up, nrow = 1, rel_widths = c(0.85, 1, 1))
 
-plt <- plot_grid(plt, 
-                 subsampled_cells,
-                 nrow = 2)
-plt
+save_plot("resampled_vs_original_closeup.pdf", 
+          plt, nrow = 1, ncol = 3, base_aspect_ratio = 1.2)
+```
 
-save_plot("resampled_tsne.pdf", plt, 
-          nrow = 2, ncol = 1,
-          base_height = 5.5, base_width = 4.25)
+```{r}
+saveRDS(sobj, "rs_sobj.rds")
 ```
 
 ## kNN analysis
 
 Find the k-nearest neighbors in PCA space
+
 
 ```{r, knns}
 
@@ -1318,18 +1634,423 @@ data.use <- GetCellEmbeddings(object = sobj,
                               reduction.type = "pca",
                               dims.use = 1:20)
 
-## find top 10 nearest neighboors using exact search
+## findnearest neighboors using exact search
 knn <- RANN::nn2(data.use, k = 5,
                  searchtype = 'standard',
                  eps = 0)
 
-subsampled_idxs <- knn$nn.idx[str_detect(rownames(data.use), "::subsampled"), ]
+resampled_idxs <- knn$nn.idx[str_detect(rownames(data.use),
+                                         "::resampled"), ]
 
-nn_ids <- as_data_frame(t(apply(subsampled_idxs, 1,
+nn_ids <- as_data_frame(t(apply(resampled_idxs, 1,
                       function(x)rownames(data.use)[x])))
 
-colnames(nn_ids) <- c("query_cell", paste0("nearest neighbor ", 1:(ncol(nn_ids) - 1)))
+colnames(nn_ids) <- c("query_cell", 
+                      paste0("nearest neighbor ", 
+                             1:(ncol(nn_ids) - 1)))
 
 nn_ids
 ```
 
+
+
+## Heatmap analysis
+
+Plot average megakaryocyte expression, the original megakaroytes, and the resampled megakaryocytes. Plot markers of megakaryocytes, defined above using the original data.
+
+```{r, eval = F}
+og_sobj <- readRDS("og_sobj.rds")
+```
+
+```{r, eval = F}
+resampled_cell_info <- sobj@meta.data %>% 
+  tibble::rownames_to_column("cell") 
+
+og_cell_info <- og_sobj@meta.data %>% 
+  tibble::rownames_to_column("cell") %>% 
+  select(cell, cell_labels)
+
+combined_cell_info <- left_join(resampled_cell_info,
+                                og_cell_info,
+                                by = "cell") 
+
+combined_cell_info <- mutate(combined_cell_info,
+                             cell_labels = as.character(cell_labels),
+                             cell_labels = ifelse(is.na(cell_labels) &
+                                                   str_detect(cell,
+                                                              "::resampled"), 
+                                                  "Megakaryocytes",
+                                                  cell_labels))
+
+combined_cell_info <- select(combined_cell_info, 
+                             cell, cell_labels) %>% 
+  as.data.frame() %>% 
+  tibble::column_to_rownames("cell")
+
+sobj <- AddMetaData(sobj, combined_cell_info)
+
+## original mk markers
+
+mk_markers <- read_tsv("all_og_markers.txt") %>% 
+  filter(cluster == "Megakaryocytes", p_val_adj < 0.01)
+
+## get avg expression with and without resampling
+sobj <- SetAllIdent(sobj, "cell_labels")
+avg_resampled_expr <- AverageExpression(sobj)
+colnames(avg_resampled_expr) <- colnames(avg_resampled_expr) %>% 
+  str_c(., " resampled")
+
+og_sobj <- SetAllIdent(og_sobj, "cell_labels")
+avg_og_expr <- AverageExpression(og_sobj) 
+colnames(avg_og_expr) <- colnames(avg_og_expr) %>% 
+  str_c(., " original")
+
+## get all MK cell expression
+mks <- rownames(sobj@meta.data)[sobj@meta.data$resampled != "not resampled"]
+
+mk_gene_expr <- FetchData(sobj, 
+                          vars.all = mk_markers$gene, 
+                          cells.use = mks)
+mk_gene_expr <- t(mk_gene_expr)
+
+avg_expr <- cbind(avg_resampled_expr[mk_markers$gene, ], 
+                  avg_og_expr[mk_markers$gene, ])
+avg_expr <- log1p(avg_expr)
+avg_expr <- avg_expr[, str_detect(colnames(avg_expr), "Megakaryocytes")]
+all_expr <- cbind(avg_expr,
+                  mk_gene_expr[rownames(avg_expr), ])
+```
+
+
+```{r fig.height= 12, fig.width=12, eval = F}
+library(ComplexHeatmap)
+Heatmap(all_expr,
+        show_row_dend = F,
+        show_column_dend = F,
+        show_row_names = F,
+        show_column_names = T)
+```
+
+
+## Combined resampled and original cells
+
+Calculate markers for MKs after merging resampling expression into original cells. 
+
+```{r merge}
+
+mat <- sc_objs[[reflib]]$umi_matrix
+
+resampled_mat <- sc_objs[[resampled_lib]]$umi_matrix[,
+                                                str_c(cells[[resampled_lib]], "-1")]
+
+not_resampled_cell_ids <- colnames(mat)[!colnames(mat) %in% str_c(cells[[resampled_lib]],
+                                                                  "-1")]
+no_resampled_mat <- mat[, not_resampled_cell_ids]
+
+## add additional genes (original)
+new_genes <- setdiff(rownames(resampled_mat), rownames(no_resampled_mat))
+zero_mat <- matrix(0L, 
+                   ncol = ncol(no_resampled_mat), 
+                   nrow = length(new_genes),
+                   dimnames = list(new_genes, colnames(no_resampled_mat)))
+no_resampled_mat <- rbind(no_resampled_mat, zero_mat)
+
+## add additional genes (resampled)
+new_genes <- setdiff(rownames(no_resampled_mat), rownames(resampled_mat))
+zero_mat <- matrix(0L, 
+                   ncol = ncol(resampled_mat), 
+                   nrow = length(new_genes),
+                   dimnames = list(new_genes, colnames(resampled_mat)))
+resampled_mat <- rbind(resampled_mat, 
+      zero_mat)
+## match original matrix roworder
+resampled_mat <- resampled_mat[rownames(no_resampled_mat), ]
+
+combined_mat <- cbind(no_resampled_mat, resampled_mat)
+
+sobj <- CreateSeuratObject(combined_mat, min.genes = 200)
+
+new_ids <- sobj@meta.data %>% 
+  rownames_to_column("cell") %>% 
+  mutate(resampled = ifelse(cell %in% str_c(cells[[resampled_lib]], "-1"),
+                             "resampled",
+                             "not resampled"))
+
+resampled_cell_ids <- new_ids[new_ids$resampled == "resampled", 
+                               "cell"] %>% 
+  str_replace("::resampled", "")
+ 
+new_ids <- mutate(new_ids, 
+                  resampled = ifelse(cell %in% resampled_cell_ids, 
+                                      "original cell",
+                                      resampled)) %>% 
+  select(cell, resampled) %>% 
+  as.data.frame(.) %>% 
+  column_to_rownames("cell")
+
+sobj <- AddMetaData(sobj, new_ids)
+
+cell_ids <- select(cell_mdata, cell, cell_labels) %>% 
+  as.data.frame() %>% 
+  tibble::column_to_rownames("cell")
+
+sobj <- AddMetaData(sobj, cell_ids)
+sobj <- NormalizeData(sobj)
+sobj <- ScaleData(sobj)
+sobj <- SetAllIdent(sobj,
+                    "cell_labels") 
+new_markers <- FindMarkers(sobj, 
+                           ident.1 = "Megakaryocytes")
+
+new_mk_markers <- tibble::rownames_to_column(new_markers, "gene") %>% 
+  filter(p_val_adj < 0.01) %>% 
+  tbl_df()
+
+mk_markers <- read_tsv("original_pbmc_markers.txt") %>% 
+  filter(cluster == "Megakaryocytes", p_val_adj < 0.01)
+
+shared_mk_markers <- inner_join(new_mk_markers,
+                                mk_markers, by = "gene",
+                                suffix = c("_new", "_old"))
+
+ggplot(shared_mk_markers,
+       aes(p_val_old, p_val_new)) +
+  geom_point() +
+  scale_x_log10() +
+  scale_y_log10() +
+  geom_abline()
+
+ggplot(shared_mk_markers,
+       aes(avg_logFC_old, avg_logFC_new)) +
+  geom_point() + 
+  geom_abline()
+
+plot_expr_raw <- data_frame(og = og_sobj@raw.data[new_mk_markers$gene,
+                                              str_c(cells$mkcell_pulldown, "-1")[1]],
+                        resampled = sobj@raw.data[new_mk_markers$gene,
+                                                  str_c(cells$mkcell_pulldown, "-1")[1]])
+
+ggplot(plot_expr_raw, 
+       aes(og, resampled)) + 
+  geom_point(size = 0.5) +
+  geom_abline()
+
+plot_expr_norm <- data_frame(og = og_sobj@data[new_mk_markers$gene,
+                                              str_c(cells$mkcell_pulldown, "-1")[1]],
+                        resampled = sobj@data[new_mk_markers$gene,
+                                                  str_c(cells$mkcell_pulldown,
+                                                        "-1")[1]])
+
+ggplot(plot_expr_norm, 
+       aes(og, resampled)) + 
+  geom_point(size = 0.5) +
+  geom_abline()
+
+```
+
+
+## information about genes recovered
+
+```{r}
+mk_markers <- filter(all_markers, 
+                     cluster == "Megakaryocytes", 
+                     p_val_adj < 0.01)
+
+genes_to_plot <- rownames(sc_objs[[resampled_lib]]$umi_matrix)
+cols <- colnames(sc_objs[[resampled_lib]]$norm_umi)
+cell_ids <- str_c(cells[[resampled_lib]], "-1")
+
+## append genes to reference library if necessary
+ref_mat <- standardize_rows(sc_objs[[resampled_lib]]$umi_matrix[,
+                                                                 cols],
+                            sc_objs[[reflib]]$umi_matrix[, cols])
+
+ma_dat <- map(cell_ids,
+    ~calc_ma(sc_objs[[resampled_lib]]$umi_matrix[genes_to_plot, cols], 
+             ref_mat[genes_to_plot, cols],
+             cell = .x))
+
+names(ma_dat) <- cell_ids
+ma_dat <- bind_rows(ma_dat, .id = "cell")
+
+plot_ma <- function(df, markers){
+  
+  df <- mutate(df, 
+               marker = ifelse(gene %in% markers,
+                                  "MK marker",
+                                  "not MK marker"))
+  n_up <- filter(df, log2_diff > 0) %>% 
+    group_by(cell) %>% 
+    summarize(n = n(), n = paste0("up = ", n))
+  
+  n_down <- filter(df, log2_diff < 0) %>% 
+    group_by(cell) %>% 
+    summarize(n = n(), n = paste0("down = ", n))
+  
+  if (nrow(n_down) == 0) {
+    n_down = data_frame(cell = df$cell %>% unique(),
+                        n = "down = 0")
+  }
+  plt <- ggplot(df,
+         aes(mean_expression_log2,
+             log2_diff)) +
+    geom_hline(aes(yintercept = 0), linetype = "dashed", colour = "grey") + 
+    geom_point(aes(color = marker), size = 0.25) +
+    geom_text(data = n_up, aes(x = max(ma_dat$mean_expression_log2) * 0.9, 
+                               y = max(ma_dat$log2_diff) * 1.2, 
+                               label = n)) +
+    geom_text(data = n_down, aes(x = max(ma_dat$mean_expression_log2) * 0.9, 
+                                 y = min(ma_dat$log2_diff) * 1.2, 
+                                 label = n)) + 
+    facet_wrap(~cell) +
+    labs(x = expression(paste("Abundance (log"[2], ")")),
+         y = expression(paste(frac("resampled","Original"), " (log"[2], ")"))) +
+    scale_color_brewer(palette = "Set1", name = "") +
+    guides(colour = guide_legend(override.aes = list(size = 4)))
+  plt
+}
+
+plt <- plot_ma(ma_dat, mk_markers$gene)
+plt
+save_plot("per_cell_MA_mk_markers.pdf", plt, base_height = 6)
+```
+
+
+## How much overlap with known MK markers
+
+The 4 resampled cells have higher numbers of genes detected, but adding just these 4 cells is not sufficent to increase the number of marker genes discovered for the MK cluster. This is likely due to there only being 4 cells out of 70 that are resampled. More cells would be necessary for this task.
+
+To determine if the new genes detected in the 4 cells are actually markers of MKs I instead compared these genes to genes identified in another PBMC experiment. 10x genomics has a scRNA-Seq dataset with 68k cells, which has > 200 cells (compared to our 70). I computed markers for these cells and will use this dataset as a reference for MK cell markers. 
+
+```{r compare_to_10x}
+mk_10x_markers <- read_tsv(file.path(results_dir, 
+                                      "2018-06-01",
+                                      "mk_markers_pbmc68k.txt")) %>% 
+  filter(p_val_adj < 0.01)
+
+new_genes <- sc_objs$mkcell_pulldown$new_genes[str_c(cells$mkcell_pulldown,
+                                                     "-1")]
+all_new_genes <- unique(unlist(new_genes))
+
+genes <- list(all_new_genes = all_new_genes, mk_68k = mk_10x_markers$gene)
+
+all_genes <- unique(unlist(genes))
+lgl_df <- map_df(genes, ~all_genes %in% .x) %>% 
+  as.data.frame()
+
+fit <- eulerr::euler(lgl_df)
+plot(fit)
+
+## Now add in "expressed" not just markers
+
+```
+
+
+#### scatterplots colored with markers
+ 
+ Next I'll plot the original expression per cell versus the average expression in MK cells, then the resampled expression.
+ 
+ 
+```{r get_expr_scat}
+og_sobj <- readRDS("og_sobj.rds")
+og_sobj <- SetAllIdent(og_sobj, "cell_labels")
+average_expression <- AverageExpression(og_sobj)  
+average_mk_expression <- average_expression[,
+                                            "Megakaryocytes", 
+                                            drop = F]
+
+average_mk_expression <- log1p(average_mk_expression)
+average_mk_expression <- average_mk_expression %>% 
+  tibble::rownames_to_column("gene")
+og_expr <- og_sobj@data[, str_c(cells$mkcell_pulldown, "-1")] %>% 
+  as.matrix(.) %>% 
+  as.data.frame(.) %>% 
+  tibble::rownames_to_column("gene")
+
+average_mk_expression <- left_join(average_mk_expression, og_expr)
+
+average_mk_expression <-  average_mk_expression %>% 
+  gather(cell, expr, -gene, -Megakaryocytes) %>% 
+  tbl_df()
+
+## get cor:
+
+cell_cor <- average_mk_expression %>% 
+  group_by(cell) %>% 
+  do(broom::tidy(cor(.$Megakaryocytes, .$expr))) %>% 
+  ungroup() %>% 
+  mutate(cell_cor = str_c("R = ", 
+                          formatC(x, big.mark = ",", digits = 3)))
+
+og_plot <- ggplot(average_mk_expression, 
+         aes(expr, Megakaryocytes)) +
+    geom_point(size = 0.5) + 
+    geom_abline(aes(slope = 1, intercept = 0)) +
+    geom_text(data = cell_cor,
+              aes(x = 2,
+                  y = max(average_mk_expression$Megakaryocytes) * 0.9, 
+                  label = cell_cor),
+              size = 3) +
+    facet_wrap(~cell, nrow = 1) +
+    coord_fixed() + 
+    theme(legend.position = "top",
+          strip.text = element_text(size = 8))
+
+
+sobj <- SetAllIdent(sobj, "cell_labels")
+average_rs_expression <- AverageExpression(sobj)  
+average_rsmk_expression <- average_rs_expression[,
+                                            "Megakaryocytes", 
+                                            drop = F]
+
+average_rsmk_expression <- log1p(average_rsmk_expression)
+average_rsmk_expression <- average_rsmk_expression %>% 
+  tibble::rownames_to_column("gene")
+rs_expr <- sobj@data[, str_c(cells$mkcell_pulldown, "-1")] %>% 
+  as.matrix(.) %>% 
+  as.data.frame(.) %>% 
+  tibble::rownames_to_column("gene")
+
+average_rsmk_expression <- left_join(average_rsmk_expression, rs_expr)
+
+average_rsmk_expression <-  average_rsmk_expression %>% 
+  gather(cell, expr, -gene, -Megakaryocytes) %>% 
+  tbl_df()
+
+## get cor:
+rs_cell_cor <- average_rsmk_expression %>% 
+  group_by(cell) %>% 
+  do(broom::tidy(cor(.$Megakaryocytes, .$expr))) %>% 
+  ungroup() %>% 
+  mutate(cell_cor = str_c("R = ", 
+                          formatC(x, big.mark = ",", digits = 3)))
+
+rs_plt <- ggplot(average_rsmk_expression, 
+         aes(expr, Megakaryocytes)) +
+    geom_point(size = 0.5) + 
+    geom_abline(aes(slope = 1, intercept = 0)) +
+    geom_text(data = rs_cell_cor,
+              aes(x = 2,
+                  y = max(average_mk_expression$Megakaryocytes) * 0.9, 
+                  label = cell_cor),
+              size = 3) +
+    facet_wrap(~cell, nrow = 1) +
+    coord_fixed() + 
+    theme(legend.position = "top",
+          strip.text = element_text(size = 8))
+
+cell_cor <- bind_rows(list(original = cell_cor, 
+                           resampled = rs_cell_cor), .id = "type")
+
+cell_cor
+```
+
+```{r plt}
+
+plt <- plot_grid(og_plot, rs_plt, nrow = 2)
+
+save_plot("expression_versus_cluster_average.pdf", plt, 
+          nrow = 2, ncol = 1,
+          base_height = 4,
+          base_aspect_ratio = 2)
+```
