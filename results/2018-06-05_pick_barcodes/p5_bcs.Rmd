@@ -1,0 +1,581 @@
+---
+title: "Pick 5` barcodes..."
+author: "Kent Riemondy RBI"
+date: "6/5/2018"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: false
+    theme: cosmo
+    highlight: tango
+    fig_caption: true
+    code_folding: hide
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+```
+
+```{r, message=F, warning=F, echo=F}
+source("../../R/globals.R")
+```
+## 5' single cell resampling
+   Chris Alderman is a summer student working with Jay. His project will be to try some resampling approaches with TCR and Ig sequencing. The first experiment will be to try resampling a TCR or Ig sequences from Jurkat and Raji cells respectively. Previously we generated 5' end gene expression libraries and TCR or Ig sequencing from these cells. Some of the Jurkat cells only had recoverable TCRB chain but no alpha, so we will first try to resample one of these cells to try to get the alpha chain assembled. The raji cells had only IgK chain assembled (light chain) with no heavy chain reassembled, and it is currently unclear if the heavy chain has been rearranged and therefore cannot be assembled by the 10x algorithm. We will also try a Raji cell to get the heavy chain sequences. 
+   
+   The cells selected will be cross-referenced against the 5' end gene expression from the same cell to make sure that it is a good cell to pick for resampling. 
+   
+   
+   The 10x pipeline provides a few files with information about each contig assembled per cell. (details [here](https://support.10xgenomics.com/single-cell-vdj/software/pipelines/latest/output/annotation)). The `all_contigs_annotations.csv` file will be parsed to try to identify candidate barcodes for resampling. 
+   
+## Jurkat TCR sequencing
+
+The top clonotype contained only the TCR-B chain, while the second clonotype contained by A and B chains. A good cell to resample would be a cell from the first clonotype that also has some reads supported the A chain (but not enough to assemble).
+   
+```{r}
+data_dir <- "~/Projects/10x_data/tcr/results/2018-05-18_jurkat_raji/"
+dat <- read_csv(file.path(data_dir, "VDJ_Tcell", "outs", "all_contig_annotations.csv"))
+```
+
+
+First gather some summary stats.
+```{r}
+n_reads <- sum(dat$reads)
+n_umis <- sum(dat$umis)
+
+data_frame(n_reads, n_umis)
+```
+
+Now select clonotype 1 cells with a TCR-A contig not assembled into a full V to J segment. Restrict to contigs that have not been determined to unproductive, as these contigs are likely to be properly reassembled upon resampling. Unproductive contigs do not have a start codon or do not have a CDR3 region or do not have  stop codon. Also check that there is a VJ and VC segment annotated (i.e. the contig is not just the v-chain). 
+
+```{r}
+
+resampling_candidates <- filter(dat, 
+       raw_clonotype_id == "clonotype1",
+       chain == "TRA",
+       productive == "None",
+       j_gene != "None",
+       c_gene != "None") 
+
+resampling_candidates
+```
+There are `r nrow(subsampling_candidates)` candidate barcodes. Why are these contigs not fully assembled?
+
+```{r stats_about_reconstruction}
+good_contigs <- filter(dat, 
+       raw_consensus_id == "clonotype2_consensus_1")
+
+
+bind_rows(list("reconstructed_tcrA" = good_contigs, 
+               "not_reconstructed_tcra"= resampling_candidates), 
+          .id = "contig_type") %>% 
+  select(barcode, 
+         contig_length = length,
+         n_umis = umis,
+         n_reads = reads,
+         contig_type) %>% 
+  gather(parameter, value, -barcode, -contig_type) %>% 
+  ggplot(., aes(contig_type, value)) + 
+    geom_boxplot() +
+    facet_wrap(~parameter, drop = T) +
+  theme(axis.text.x = element_text(angle = 90),
+        axis.title.x = element_blank())
+```
+
+ The TCR alpha chains are not assembled likely due to the contigs not fully spanning the V-to-J segments. 
+ 
+ ## Jurkat 5' end gene expression
+ 
+ 
+```{r p5_data}
+library(Seurat)
+sample_path <- file.path(data_dir,
+                         "geneexp_JurkatExp",
+                         "outs",
+                         "filtered_gene_bc_matrices",
+                         "GRCh38")
+
+sobj <- Read10X(sample_path)
+sobj <- CreateSeuratObject(sobj, 
+                           min.genes = 100, project = "5p gene expr")
+sobj <- NormalizeData(sobj)
+sobj <- ScaleData(sobj)
+sobj <- RunPCA(sobj, pc.genes = rownames(sobj@data), 
+               pcs.compute = 20, 
+               do.print = F, seed.use = 20180606)
+sobj <- RunTSNE(sobj, dims.use = 1:15, seed.use = 20180606)
+sobj <- FindClusters(sobj,
+                     dims.use = 1:15, 
+                     k.param = 15,
+                     resolution = 1.2, 
+                     print.output = F, 
+                     random.seed = 20180606)
+
+TSNEPlot(sobj)
+weird_cluster_markers <- FindMarkers(sobj, "9")
+
+
+
+```
+ 
+### QC
+
+```{r}
+sobj <- SetAllIdent(sobj, "orig.ident")
+VlnPlot(sobj, c("nUMI",
+                "nGene"))
+```
+
+```{r}
+small_obj <- SubsetData(sobj, cells.use = str_replace(resampling_candidates$barcode,
+                                                      "-1",
+                                                      ""))
+VlnPlot(small_obj, c("nUMI",
+                "nGene"))
+
+```
+
+
+```{r}
+total_5p_umis <- sum(sobj@meta.data$nUMI)
+  
+bc_info <-  small_obj@meta.data %>% 
+  tibble::rownames_to_column("cell") %>% 
+  mutate(proportion_umis = nUMI / total_5p_umis,
+         cell = str_c(cell, "-1")) %>% 
+  select(cell, nGene, nUMI, proportion_umis) %>% 
+  arrange(desc(proportion_umis)) %>%
+  left_join(., 
+            resampling_candidates, 
+            by = c("cell" = "barcode")) 
+
+write_tsv(bc_info, "tcr_resampling_candidates.txt")
+bc_info
+```
+
+```{r}
+new_mdata <- sobj@meta.data %>% 
+  rownames_to_column("barcode") %>% 
+  select(barcode) %>% 
+  mutate(resampled = ifelse(barcode %in%
+                              str_replace(resampling_candidates$barcode,
+                                          "-1", ""),
+                            "resampled",
+                            "not resampled")) %>% 
+  as.data.frame() %>% 
+  column_to_rownames("barcode")
+
+sobj <- AddMetaData(sobj, new_mdata)
+
+TSNEPlot(SetAllIdent(sobj, "resampled"))
+```
+
+## IgG Raji libraries
+
+Raji (Burkitt's lymphoma cell line) cells were processed for IgG and 5' end gene expression. The 10x report indicated that only the light chain was recovered from each cell, rather than both the heavy and light chain. Why is this?
+
+```{r}
+
+dat <- read_csv(file.path(data_dir, "VDJ_Bcell", "outs", "all_contig_annotations.csv"))
+```
+
+
+How many contigs have both a light and heavy contig, (no filters)?
+```{r}
+summary_dat <- dat %>%
+  group_by(barcode) %>% 
+  summarize(chains = valr::values_unique(chain),
+            igh_and_light = str_detect(chains, "IGK") & 
+              str_detect(chains, "IGH"),
+            light_only = (!str_detect(chains, "IGH") & str_detect(chains, "IGK"))) 
+
+
+```
+
+there are `r sum(summary_dat$igh_and_light)` cells with both a heavy and light chain contig, and `r sum(summary_dat$light_only)` cells with only a light chain. 
+
+Why is the heavy chain not assembled?
+
+```{r}
+heavy_chain_cells <- dat %>%
+  group_by(barcode) %>% 
+  summarize(chains = valr::values_unique(chain)) %>% 
+  filter(str_detect(chains, "IGK") & 
+              str_detect(chains, "IGH"))
+
+heavy_chain_contigs <- inner_join(dat,
+                                 heavy_chain_cells,
+                                 by = "barcode") %>% 
+  filter(chain == "IGH")
+
+```
+
+
+Looking at the data it seems that there are plenty of heavy_chain_contigs that contain a CDR3 region `CARQRNDFSDNNNYYSNFDFW`. However spot checking a handful of these sequences show that there is a stop codon in frame upstream of the CDR3 region, and no start codon in frame. 
+
+
+```{r}
+
+library(jsonlite)
+contigs <- read_json(path.expand(file.path(data_dir, "VDJ_Bcell", "outs",
+                              "all_contig_annotations.json")),
+                     simplifyVector = TRUE)
+igh_contigs <- contigs[contigs$contig_name %in% heavy_chain_contigs$contig_id, ]
+group_by(igh_contigs, sequence) %>% 
+  summarize(n())
+```
+
+
+```{r p5_data}
+library(Seurat)
+sample_path <- file.path(data_dir,
+                         "geneexp_RajiExp",
+                         "outs",
+                         "filtered_gene_bc_matrices",
+                         "GRCh38")
+
+sobj <- Read10X(sample_path)
+sobj <- CreateSeuratObject(sobj, 
+                           min.genes = 100, project = "5p gene expr")
+sobj <- NormalizeData(sobj)
+sobj <- ScaleData(sobj)
+sobj <- RunPCA(sobj, pc.genes = rownames(sobj@data), 
+               pcs.compute = 20, 
+               do.print = F, seed.use = 20180606)
+sobj <- RunTSNE(sobj, dims.use = 1:15, seed.use = 20180606)
+sobj <- FindClusters(sobj,
+                     dims.use = 1:15, 
+                     k.param = 15,
+                     resolution = 1.2, 
+                     print.output = F, 
+                     random.seed = 20180606)
+
+TSNEPlot(sobj)
+```
+
+
+I assembled the bcr H chain contigs using cap3, then mapped (bowtie2) all of the contigs onto the best contig, with highest read support (contig7). 
+This contig is 407 nt in length.
+
+```{r, eval = F}
+
+sam <- kentr::bam_to_df('bcr_alignments.bam')
+sam <- mutate(sam, 
+              width = end - start) %>% 
+  tbl_df()
+
+summary_seqs <- left_join(heavy_chain_contigs, 
+          sam,
+          by = c("contig_id" = "name"))
+
+
+contig7 <- filter(summary_seqs, chrom == "Contig7")
+
+# select cells that don't have ~370 nt contig
+filter(summary_seqs, chrom == "Contig7", width < 320) %>% 
+  arrange(desc(umis)) %>% 
+  View()
+```
+
+The BCR h chain is really strange, and I don't think it makes sense to resample. 
+
+## Filter tcr barcodes based on similarity to other libraries
+
+Next I'll check the TCR resampling candidates for similarity (i.e. hamming distances) to barcodes in the Brett_1 PBMC experiment and the 10x genomics control libraries. 
+
+```{r show_data, message = F, warning = F}
+library(cellrangerRkit)
+library(dtplyr)
+library(kentr) 
+```
+
+
+## Per barcode stats
+
+The number of umis and reads per barcode is stored in the molecule_info.h5 file, which can be parsed via the cellrangerkit ``load_molecule_info()`` function. After loading and decompressing the seqs, the number of reads, UMIs, and duplication rates are calculated and saved as `per_cell_summary.txt.gz`. For this analysis I've decided to compare againt the AML samples from Craig Jordans lab, specifically AML1, which has the most barcodes detected (110,742), and the 10x control libraries (i.e. mouse and human mix)
+
+```{r utils}
+source("../../R/utils.R")
+load_dat <- function(path, genome){
+  gbm <- load_cellranger_matrix(path, genome = genome)
+  gbm <- load_molecule_info(gbm = gbm) #load from h5 file
+  dat <- gbm@molecule_info #extracted as a data.table 
+  dat
+}
+
+summarize_barcodes <- function(data_object, analysis_object){
+  data_object  %>% 
+  dplyr::group_by(seqs) %>% 
+  dplyr::summarize(total_umis = n(), 
+                   total_reads = as.integer(sum(reads))) %>% 
+  dplyr::mutate(dup_rate = 1 - (total_umis / total_reads)) %>%  
+  dplyr::arrange(desc(total_umis)) %>% 
+  ungroup()  
+}
+```
+
+
+```{r}
+base_dir <- "~/Projects/10x_data/runs/"
+samples <- list(
+  "10xPilot1/control",
+  "10xPilot1/control",
+  "10xPilot1/Jordan/Brett_1"
+)
+
+samples <- file.path(base_dir, samples)
+
+samples <- c(file.path(data_dir, "geneexp_JurkatExp"),
+             samples)
+
+genomes <- c("GRCh38", "mm10", "hg19", "GRCh38")
+
+sample_ids <- map_chr(samples, ~basename(.x))
+sample_names <-  transpose(list(genomes, sample_ids)) %>% 
+  map(~paste(.x, collapse = "_")) %>% 
+  str_replace("/", "_")
+```
+
+```{r process_bcs, cache.lazy = F}
+dat <- map2(samples, genomes, 
+            ~load_dat(.x, .y))
+
+names(dat) <- sample_names
+
+# get unique barcodes (~100k) 
+seqs <- map(dat, ~select(.x, barcode) %>% 
+              unique())
+
+# Decode the barcode 
+seqs <- map(seqs, ~mutate(.x, 
+                          seqs = decompress_sequences(barcode, 16)))
+
+# join seqs with dat
+dat <- map2(dat, seqs, ~inner_join(.x, .y, by = "barcode"))
+
+# append to gem Id to barcode seq to match matrix colnames
+dat <- map(dat, ~mutate(.x, seqs = paste0(seqs, "-", gem_group)) %>%
+             tbl_df()) 
+
+dat <- map(dat, ~summarize_barcodes(.x))
+dat <- bind_rows(dat, .id = "library")
+write_gztsv(dat, "per_cell_control_library_summary.txt.gz")
+```
+
+
+## Determine shared barcodes
+
+```{r}
+sample_path <- file.path(data_dir,
+                         "geneexp_JurkatExp",
+                         "outs",
+                         "filtered_gene_bc_matrices",
+                         "GRCh38")
+
+gene_expr_barcodes <- read_tsv(file.path(sample_path, 
+                                        "barcodes.tsv"), 
+                              col_names = c("barcode"))
+
+```
+
+
+```{r}
+
+# split by group and compare vectors
+tmp <- split(dat, dat$library)
+tmp <- map(tmp,
+           function(x){
+             x$shared <- x$seqs %in%
+               tmp[["GRCh38_geneexp_JurkatExp"]]$seqs
+             x})
+
+grp_dat_by_expt <- bind_rows(tmp)
+
+## not that the cellranger toolkit loads plyr, which messes up many dplyr functions...
+
+grp_dat_by_expt %>% 
+  dplyr::group_by(library) %>%  
+  dplyr::summarize(barcodes_detected_in_other_libs = sum(shared))
+```
+
+a large proportion are shared between the experiments. Mostly due to rare barcodes with few reads. Next check the number of shared barcodes that were considered as cells. 
+
+```{r}
+# get data object
+matrix_dat <- map2(samples, genomes, 
+                ~load_cellranger_matrix(.x, genome = .y))
+
+# extract out barcodes
+cell_bcs <- map(matrix_dat, 
+                ~data_frame(good_cell_bcs = as.character(.x@phenoData@data$barcode)))
+
+names(cell_bcs) <- sample_names
+cell_bcs <- bind_rows(cell_bcs, .id = "library")
+
+# keep only cell bcs
+cell_dat <- semi_join(grp_dat_by_expt, 
+          cell_bcs, 
+          by = c("library", "seqs" = "good_cell_bcs"))
+
+tmp <- split(cell_dat, cell_dat$library)
+tmp <- map(tmp,
+           function(x){
+             x$cells_shared <- x$seqs %in%
+               tmp[["GRCh38_geneexp_JurkatExp"]]$seqs
+             x})
+cell_dat <- bind_rows(tmp)
+
+# how many cell bcs shared
+cell_dat %>% 
+  dplyr::group_by(library) %>%  
+  dplyr::summarize(barcodes_detected_in_both_libs = sum(cells_shared))
+```
+
+Only a few cellular barcodes are shared between the libraries, but instead I'll try selecting cells based on relative proportions. For example only pick cell barcodes that are not found in the top quartile of the other library or some other similar method. 
+
+```{r}
+
+grp_dat_by_expt <- grp_dat_by_expt %>% 
+  dplyr::group_by(library) %>% 
+  dplyr::mutate(total_reads_per_expt = sum(total_reads),
+    proportional_read_count = total_reads / total_reads_per_expt,
+    quartile_rank_reads = ntile(proportional_read_count, 4),
+    percent_rank_reads = percent_rank(proportional_read_count),
+    rank = min_rank(desc(proportional_read_count))) %>% 
+  dplyr::select(-total_reads_per_expt) 
+
+filter_dat <- grp_dat_by_expt %>% 
+  dplyr::filter(quartile_rank_reads == 4) 
+
+tmp <- split(filter_dat, filter_dat$library)
+tmp <- map(tmp,
+           function(x){
+             x$shared <- x$seqs %in%
+               tmp[["GRCh38_geneexp_JurkatExp"]]$seqs
+             x})
+filter_dat <- bind_rows(tmp)
+
+# how many cell bcs shared
+filter_dat %>% 
+  dplyr::group_by(library) %>%  
+  dplyr::summarize(barcodes_detected_in_both_libs = sum(shared))
+
+```  
+
+
+
+```{r}
+# drop barcodes found in other libraries
+other_libs <- filter(filter_dat, 
+                     library != "GRCh38_geneexp_JurkatExp")
+jurkat_expt_not_in_other_libs <- filter(filter_dat, 
+                            library == "GRCh38_geneexp_JurkatExp") %>% 
+  anti_join(., other_libs, by = "seqs") %>% 
+  ungroup()
+other_libs <- filter(other_libs, !shared, library == "GRCh38_Brett_1")
+
+filtered <- bind_rows(jurkat_expt_not_in_other_libs, 
+                      other_libs)
+# calc all pairwise hamming distances and generate logical matrix indicating which
+# sequences are equal to the minimum  discovered hamming dist. Slow, 1-2 minutes
+
+hamming_distances <- map(jurkat_expt_not_in_other_libs$seqs,
+    ~kentr::get_hamming(.x, filtered$seqs))
+
+names(hamming_distances) <- jurkat_expt_not_in_other_libs$seqs
+
+hdist_min <- map(hamming_distances, ~min(.x[.x > 0]))
+
+# find the indexes within the original barcode data that are the smallest non-zero hamming
+hdist_idxs <- map2(hamming_distances, 
+                   hdist_min, ~which(.x == .y))
+
+# get barcode with highest total-read count with the minimum hamming dist
+best_match_bc <- map_df(hdist_idxs, 
+                        ~filtered[.x, ] %>% 
+                     dplyr::arrange(desc(total_umis)) %>% 
+                     dplyr::slice(1)) 
+
+#rename to allow binding with output data
+best_match_bc <-  dplyr::select(best_match_bc, -dup_rate)
+colnames(best_match_bc) <- str_c("nearest_", 
+                                 colnames(best_match_bc))
+           
+#append to original data, row order is the same
+filtered <- bind_cols(jurkat_expt_not_in_other_libs, 
+                      best_match_bc)
+
+#append to original data, row order is the same
+filtered <- dplyr::mutate(filtered,
+                          hamming_dist = hdist_min[seqs] %>% 
+                                unlist() %>% 
+                                unname())
+
+## now restrict output to jsut candidate barcodes
+resampling_candidates_hdist <- left_join(resampling_candidates,
+          filtered,
+          by = c("barcode" = "seqs"))
+```
+
+Lastly select candidates
+```{r}
+
+# drop candidates found in the top quartile of barcodes in ctrl libs#
+#rop candidates
+resampling_candidates_hdist <- 
+  resampling_candidates_hdist %>% 
+  filter(!is.na(nearest_seqs),
+         nearest_library != "GRCh38_geneexp_JurkatExp",
+         nearest_percent_rank_reads < 0.95) %>% 
+  arrange(desc(umis),
+          desc(total_umis))
+
+write_tsv(resampling_candidates_hdist, "candidates_filtered.tsv")
+```
+
+/5Biosg/ATCT+TGT+CCC+AGT+AAA+CAC+A
+
+Write out excel file with info
+
+```{r}
+
+bc_summary <- mutate(resampling_candidates_hdist[1:4, ], 
+         barcode_id = str_c("TCR_", row_number(barcode)),
+         Exiqon_oligo_format = str_replace(barcode, "-1", "")) %>% 
+  select(barcode_id,
+         barcode, 
+         Exiqon_oligo_format)
+
+x <- resampling_candidates_hdist[1:4, "barcode", drop = T]
+
+bc_summary <- bc_summary %>% 
+  mutate(Exiqon_oligo_format = map_chr(Exiqon_oligo_format, 
+    function(str){
+      out <- list("/5Biosg/ATCT+")
+      nchars <- nchar(str)
+      str <- str_split(str, "")[[1]]
+      for (i in seq_along(1:nchars)){
+        if (i %% 3 != 0){
+          out <- c(out, str[i])
+        } else {
+          out <- c(out, str[i])
+          out <- c(out, "+")
+        }
+      }
+      out <- str_c(out, collapse = "")
+      return(out)
+    }))
+
+output_xl <- list(cell_oligos = bc_summary, 
+                  bc_info = resampling_candidates_hdist[1:4, ])
+openxlsx::write.xlsx(output_xl, 
+                     "pulldown_oligos_tcr.xlsx")
+```
+              
