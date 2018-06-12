@@ -1,0 +1,47 @@
+""" Snakefile to produce figures """
+import os
+RESULTS = "../"
+
+RMDS = [
+  ["2018-05-16_mouse_human", "mouse_human_pulldown"],
+  ["2018-05-15_pbmc", "mkcell_pulldown"],
+  ["2018-04-27_pcr_expt", "pcr_enrichment"],
+  ["2018-05-21_new_old_umis", "umis"]
+]
+
+RMDS = [os.path.join(*x) for x in RMDS]
+
+rule all:
+  input:
+    os.path.join("_site", "index.html"),
+    expand(os.path.join(RESULTS, "{rmd}.html"), rmd = RMDS)
+    
+rule build_site:
+  """ render rmarkdown website
+  """
+  input:
+    rmd = "index.Rmd",
+    htmls = expand(os.path.join(RESULTS, "{rmd}.html"), rmd = RMDS)
+  output:
+    os.path.join("_site", "index.html")
+  log:
+    "logs/build_site.txt",
+  shell:
+    """
+    R -e "rmarkdown::render_site('{input.rmd}')"
+    """
+  
+rule run_markdown:
+  """ 
+  render Rmarkdown to produce html output
+  """
+  input:
+    os.path.join(RESULTS, "{rmd}.Rmd")
+  output:
+    os.path.join(RESULTS, "{rmd}.html")
+  log:
+    "logs/build_{rmd}.txt",
+  shell:
+    """
+    R -e "rmarkdown::render('{input}')"
+    """
