@@ -949,8 +949,7 @@ plt <- ggplot(plt_dat,
   scale_fill_brewer(palette = "Set1")
 
 save_plot("new_genes_barplot.pdf", plt, 
-          base_width = 3.6, base_height = 5)
-
+          base_width = 4, base_height = 5)
 
 ## species specific
 
@@ -1697,4 +1696,58 @@ colnames(nn_ids) <- c("query_cell",
                       paste0("nearest neighbor ", 1:(ncol(nn_ids) - 1)))
 
 nn_ids
+```
+
+
+## Species specificity
+
+```{r, fig.width = 8, fig.height =8}
+
+resampled_metadat <- map(sc_objs, ~.x$meta_dat) %>% 
+  bind_rows(.id = "library") %>% 
+   mutate(library = factor(library, 
+                          levels = unlist(libs))) %>% 
+  arrange(resampled)
+
+cell_names_df <- data_frame(old_id = names(cell_names), 
+                                  new_id = cell_names) 
+
+plt_dat <- resampled_metadat %>% 
+  filter(resampled, library != reflib) %>% 
+  left_join(.,
+            cell_names_df, by = c("cell_id" = "old_id")) %>% 
+  select(new_id, library, contains("purity")) %>% 
+  gather(type, purity, -new_id, -library) %>% 
+  mutate(type = ifelse(str_detect(type, "^og"),
+                       str_replace(type, "^og_", "original_"),
+                       str_c("resampled_", type)),
+         library = factor(library, levels = resampled_libs)) %>% 
+  separate(type, c("resampled", "not_import", "count_type"), sep = "_") %>% 
+  select(-not_import)
+
+plt <- ggplot(plt_dat, aes(new_id, purity)) +
+  geom_hline(aes(yintercept = 0.80), linetype = "dashed", 
+             color = "grey", alpha = 0.75) +
+  geom_hline(aes(yintercept = 0.20),  linetype = "dashed", 
+             color = "grey", alpha = 0.75) +
+  geom_point(aes(color = resampled), 
+             position = position_dodge(width = 0.5)) +
+  facet_wrap(~count_type, 
+             labeller = labeller(count_type = c(
+               "reads" = "Read Count",
+               "umis" = "UMI Count"
+             )),
+             scales = "free_x") +
+  scale_color_brewer(palette = "Set1", name = "") +
+  guides(color = guide_legend(override.aes = list(size = 5))) +
+  labs(x = "",
+       y = expression(paste( "Species Purity ", 
+                             frac("Human", "Human + Mouse")))) +
+  theme(axis.text.x = element_text(angle = 90,
+                                   hjust = 1,
+                                   vjust = 0.5),
+        legend.pos = "top")
+
+save_plot("species_specificity.pdf", plt,
+          base_height = 5, base_aspect_ratio = 1)
 ```

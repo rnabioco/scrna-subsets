@@ -773,7 +773,7 @@ plt_dat <- genes_recovered %>%
                                       "Previously\ndetected\ngenes\nnot recovered",
                                       NA))),
          cell_id = factor(cell_id, 
-                          levels = c(str_c(cells[[subsampled_lib]],
+                          levels = c(str_c(cells[[resampled_lib]],
                                            "-1"), 
                           "Not targeted\nbarcodes\n(mean)")))
 
@@ -797,7 +797,7 @@ plt <- ggplot(plt_dat,
 
 plt
 save_plot("new_genes_barplot.pdf", plt, 
-          base_width = 3.6, base_height = 5)
+          base_width = 4, base_height = 5)
 
 ```
 
@@ -883,7 +883,7 @@ plot_ma <- function(df){
     geom_text(data = n_down, aes(x = max(ma_dat$mean_expression_log2) * 0.9, 
                                  y = min(ma_dat$log2_diff) * 1.2, 
                                  label = n)) + 
-    facet_wrap(~cell) +
+    facet_wrap(~cell, nrow = 1) +
     labs(x = expression(paste("Abundance (log"[2], ")")),
          y = expression(paste(frac("resampled","Original"), " (log"[2], ")")))
   plt
@@ -1658,78 +1658,11 @@ nn_ids
 
 Plot average megakaryocyte expression, the original megakaroytes, and the resampled megakaryocytes. Plot markers of megakaryocytes, defined above using the original data.
 
-```{r, eval = F}
+```{r, eval = T}
 og_sobj <- readRDS("og_sobj.rds")
+
 ```
 
-```{r, eval = F}
-resampled_cell_info <- sobj@meta.data %>% 
-  tibble::rownames_to_column("cell") 
-
-og_cell_info <- og_sobj@meta.data %>% 
-  tibble::rownames_to_column("cell") %>% 
-  select(cell, cell_labels)
-
-combined_cell_info <- left_join(resampled_cell_info,
-                                og_cell_info,
-                                by = "cell") 
-
-combined_cell_info <- mutate(combined_cell_info,
-                             cell_labels = as.character(cell_labels),
-                             cell_labels = ifelse(is.na(cell_labels) &
-                                                   str_detect(cell,
-                                                              "::resampled"), 
-                                                  "Megakaryocytes",
-                                                  cell_labels))
-
-combined_cell_info <- select(combined_cell_info, 
-                             cell, cell_labels) %>% 
-  as.data.frame() %>% 
-  tibble::column_to_rownames("cell")
-
-sobj <- AddMetaData(sobj, combined_cell_info)
-
-## original mk markers
-
-mk_markers <- read_tsv("all_og_markers.txt") %>% 
-  filter(cluster == "Megakaryocytes", p_val_adj < 0.01)
-
-## get avg expression with and without resampling
-sobj <- SetAllIdent(sobj, "cell_labels")
-avg_resampled_expr <- AverageExpression(sobj)
-colnames(avg_resampled_expr) <- colnames(avg_resampled_expr) %>% 
-  str_c(., " resampled")
-
-og_sobj <- SetAllIdent(og_sobj, "cell_labels")
-avg_og_expr <- AverageExpression(og_sobj) 
-colnames(avg_og_expr) <- colnames(avg_og_expr) %>% 
-  str_c(., " original")
-
-## get all MK cell expression
-mks <- rownames(sobj@meta.data)[sobj@meta.data$resampled != "not resampled"]
-
-mk_gene_expr <- FetchData(sobj, 
-                          vars.all = mk_markers$gene, 
-                          cells.use = mks)
-mk_gene_expr <- t(mk_gene_expr)
-
-avg_expr <- cbind(avg_resampled_expr[mk_markers$gene, ], 
-                  avg_og_expr[mk_markers$gene, ])
-avg_expr <- log1p(avg_expr)
-avg_expr <- avg_expr[, str_detect(colnames(avg_expr), "Megakaryocytes")]
-all_expr <- cbind(avg_expr,
-                  mk_gene_expr[rownames(avg_expr), ])
-```
-
-
-```{r fig.height= 12, fig.width=12, eval = F}
-library(ComplexHeatmap)
-Heatmap(all_expr,
-        show_row_dend = F,
-        show_column_dend = F,
-        show_row_names = F,
-        show_column_names = T)
-```
 
 
 ## Combined resampled and original cells
@@ -1871,14 +1804,17 @@ ma_dat <- map(cell_ids,
              cell = .x))
 
 names(ma_dat) <- cell_ids
-ma_dat <- bind_rows(ma_dat, .id = "cell")
+ma_dat <- bind_rows(ma_dat, .id = "cell") %>% 
+  mutate(cell = factor(cell,
+                       levels = str_c(cells[[resampled_lib]],
+                                      "-1")))
 
 plot_ma <- function(df, markers){
   
   df <- mutate(df, 
                marker = ifelse(gene %in% markers,
-                                  "MK marker",
-                                  "not MK marker"))
+                                  "Megakaryocyte marker gene",
+                                  "Other gene"))
   n_up <- filter(df, log2_diff > 0) %>% 
     group_by(cell) %>% 
     summarize(n = n(), n = paste0("up = ", n))
@@ -1896,23 +1832,27 @@ plot_ma <- function(df, markers){
              log2_diff)) +
     geom_hline(aes(yintercept = 0), linetype = "dashed", colour = "grey") + 
     geom_point(aes(color = marker), size = 0.25) +
-    geom_text(data = n_up, aes(x = max(ma_dat$mean_expression_log2) * 0.9, 
+    geom_text(data = n_up, aes(x = max(ma_dat$mean_expression_log2) * 0.7, 
                                y = max(ma_dat$log2_diff) * 1.2, 
                                label = n)) +
-    geom_text(data = n_down, aes(x = max(ma_dat$mean_expression_log2) * 0.9, 
+    geom_text(data = n_down, aes(x = max(ma_dat$mean_expression_log2) * 0.7, 
                                  y = min(ma_dat$log2_diff) * 1.2, 
                                  label = n)) + 
-    facet_wrap(~cell) +
+    facet_wrap(~cell, nrow = 1, 
+               labeller = labeller(cell = cell_names)) +
     labs(x = expression(paste("Abundance (log"[2], ")")),
-         y = expression(paste(frac("resampled","Original"), " (log"[2], ")"))) +
+         y = expression(paste(frac("resampled","Original"), 
+                              " (log"[2], ")"))) +
     scale_color_brewer(palette = "Set1", name = "") +
-    guides(colour = guide_legend(override.aes = list(size = 4)))
+    guides(colour = guide_legend(override.aes = list(size = 4))) + 
+    theme(legend.position = "top")
   plt
 }
 
 plt <- plot_ma(ma_dat, mk_markers$gene)
 plt
-save_plot("per_cell_MA_mk_markers.pdf", plt, base_height = 6)
+save_plot("per_cell_MA_mk_markers.pdf", plt, 
+          base_height = 4, base_aspect_ratio = 2.5)
 ```
 
 
@@ -1920,9 +1860,12 @@ save_plot("per_cell_MA_mk_markers.pdf", plt, base_height = 6)
 
 The 4 resampled cells have higher numbers of genes detected, but adding just these 4 cells is not sufficent to increase the number of marker genes discovered for the MK cluster. This is likely due to there only being 4 cells out of 70 that are resampled. More cells would be necessary for this task.
 
-To determine if the new genes detected in the 4 cells are actually markers of MKs I instead compared these genes to genes identified in another PBMC experiment. 10x genomics has a scRNA-Seq dataset with 68k cells, which has > 200 cells (compared to our 70). I computed markers for these cells and will use this dataset as a reference for MK cell markers. 
+To determine if a subset of the new genes detected in the 4 cells are actually markers of MKs I instead compared these genes to genes identified in another PBMC experiment. 10x genomics has a scRNA-Seq dataset with 68k cells, which has > 200 MK cells (compared to our 70). I computed markers for these cells and will use this dataset as a reference for MK cell markers, in addition to the markers originally identified in the kirkpatrick expt. 
 
-```{r compare_to_10x}
+#### Shared marker genes
+
+```{r}
+sc_objs <- readRDS("sc_objs.rds")
 mk_10x_markers <- read_tsv(file.path(results_dir, 
                                       "2018-06-01",
                                       "mk_markers_pbmc68k.txt")) %>% 
@@ -1930,28 +1873,167 @@ mk_10x_markers <- read_tsv(file.path(results_dir,
 
 new_genes <- sc_objs$mkcell_pulldown$new_genes[str_c(cells$mkcell_pulldown,
                                                      "-1")]
-all_new_genes <- unique(unlist(new_genes))
 
-genes <- list(all_new_genes = all_new_genes, mk_68k = mk_10x_markers$gene)
 
-all_genes <- unique(unlist(genes))
-lgl_df <- map_df(genes, ~all_genes %in% .x) %>% 
-  as.data.frame()
+names(new_genes) <-  cell_names[names(new_genes)]
 
-fit <- eulerr::euler(lgl_df)
-plot(fit)
+pdf("newgenes_shared_in_pulldown_cells.pdf")
+  upset(fromList(new_genes), order.by = "freq")
+dev.off()
 
-## Now add in "expressed" not just markers
 
+all_detected_genes <- sc_objs$mkcell_pulldown$genes_detected[str_c(cells$mkcell_pulldown,
+                                                     "-1")] %>% 
+  map(., names)
+
+names(all_detected_genes) <-  cell_names[names(all_detected_genes)]
+
+pdf("genes_shared_in_pulldown_cells.pdf")
+  upset(fromList(all_detected_genes), order.by = "freq")
+dev.off()
+
+all_detected_genes <- sc_objs$kirkpatrick$genes_detected[str_c(cells$mkcell_pulldown,
+                                                     "-1")] %>% 
+  map(., names)
+
+names(all_detected_genes) <-  cell_names[names(all_detected_genes)]
+
+pdf("genes_shared_in_original_cells.pdf")
+  upset(fromList(all_detected_genes), order.by = "freq")
+dev.off()
+```
+                                                    
+#### compare to marker genes
+
+
+```{r compare_to_markers}
+sc_objs <- readRDS("sc_objs.rds")
+mk_10x_markers <- read_tsv(file.path(results_dir, 
+                                      "2018-06-01",
+                                      "mk_markers_pbmc68k.txt")) %>% 
+  filter(p_val_adj < 0.01)
+
+new_genes <- sc_objs$mkcell_pulldown$new_genes[str_c(cells$mkcell_pulldown,
+                                                     "-1")]
+genes_per_cell <- map(sc_objs,
+                  ~.x$genes_detected[str_c(cells$mkcell_pulldown,
+                                                     "-1")])
+
+all_genes <- map(genes_per_cell, ~map(.x, names))
+
+summary_df <- map(all_genes,
+               ~map(.x,
+                    ~data_frame(n_markers = sum(.x %in%
+                                             mk_10x_markers$gene),
+                           total_genes = length(.x))))
+summary_df <- map(summary_df, bind_rows, .id = "cell") %>% 
+  bind_rows(., .id = "library")
+
+
+plt <- ggplot(summary_df,
+       aes(cell, n_markers)) +
+  geom_bar(aes(fill = library), 
+           stat = "identity",
+           position = "dodge") +
+  scale_x_discrete(labels = cell_names) + 
+  scale_fill_brewer(palette = "Set1",
+                    name = "",
+                    labels = lib_names) +
+  labs(y = "# of Megakaryocyte\nmarker genes") +
+  guides(fill = guide_legend(nrow = 2)) + 
+  theme(axis.text.x = element_text(angle = 45,
+                                   hjust = 1),
+        axis.title.x = element_blank(),
+        legend.pos = "top")
+  
+save_plot("nmarkers_10x_pbmcs.pdf", 
+          plt,
+          base_aspect_ratio = 0.75)
+
+og_mk_markers <- read_tsv(file.path("original_pbmc_markers.txt")) %>% 
+  filter(cluster == "Megakaryocytes",
+         p_val_adj < 0.01)
+
+summary_df <- map(all_genes,
+               ~map(.x,
+                    ~data_frame(n_markers = sum(.x %in%
+                                             og_mk_markers$gene),
+                           total_genes = length(.x))))
+
+summary_df <- map(summary_df, bind_rows, .id = "cell") %>% 
+  bind_rows(., .id = "library") %>% 
+  mutate(cell = factor(cell, 
+                       levels = str_c(cells[[resampled_lib]],
+                                      "-1")))
+
+plt <- ggplot(summary_df,
+       aes(cell, n_markers)) +
+  geom_bar(aes(fill = library), 
+           stat = "identity",
+           position = "dodge") +
+  scale_x_discrete(labels = cell_names) + 
+  scale_fill_brewer(palette = "Set1",
+                    name = "",
+                    labels = lib_names) +
+  labs(y = "# of Megakaryocyte\nmarker genes") +
+  guides(fill = guide_legend(nrow = 2)) + 
+  theme(axis.text.x = element_text(angle = 45,
+                                   hjust = 1),
+        axis.title.x = element_blank(),
+        legend.pos = "top")
+  
+save_plot("nmarkers_kirkpatrick_pbmcs.pdf", 
+          plt,
+          base_aspect_ratio = 0.75)
+plt
 ```
 
 
-#### scatterplots colored with markers
+#### compare to all genes detected
+
+
+```{r}
+og_sobj <- readRDS("og_sobj.rds")
+og_sobj <- SetAllIdent(og_sobj, "cell_labels")
+avg_og_expr <- AverageExpression(og_sobj)
+mk_expr <- avg_og_expr[, "Megakaryocytes", drop = F]
+mk_expr <- mk_expr[mk_expr$Megakaryocytes > 0, , drop = F]
+
+summary_df <- map(all_genes,
+               ~map(.x,
+                    ~data_frame(n_markers = sum(.x %in%
+                                             rownames(mk_expr)),
+                           total_genes = length(.x))))
+summary_df <- map(summary_df, bind_rows, .id = "cell") %>% 
+  bind_rows(., .id = "library")
+
+plt <- ggplot(summary_df,
+       aes(cell, n_markers)) +
+  geom_bar(aes(fill = library), 
+           stat = "identity",
+           position = "dodge") +
+  scale_x_discrete(labels = cell_names) + 
+  scale_fill_brewer(palette = "Set1",
+                    name = "",
+                    labels = lib_names) +
+  labs(y = "# of Megakaryocyte\ngenes detected") +
+  guides(fill = guide_legend(nrow = 2)) + 
+  theme(axis.text.x = element_text(angle = 45,
+                                   hjust = 1),
+        axis.title.x = element_blank(),
+        legend.pos = "top")
+  
+save_plot("ngenesdetected_kirkpatrick_pbmcs.pdf", 
+          plt,
+          base_aspect_ratio = 0.75)
+```
+  
+#### compare gene expression with scatterplots
  
  Next I'll plot the original expression per cell versus the average expression in MK cells, then the resampled expression.
  
  
-```{r get_expr_scat}
+```{r get_expr_scat_color}
 og_sobj <- readRDS("og_sobj.rds")
 og_sobj <- SetAllIdent(og_sobj, "cell_labels")
 average_expression <- AverageExpression(og_sobj)  
@@ -1991,6 +2073,8 @@ og_plot <- ggplot(average_mk_expression,
                   y = max(average_mk_expression$Megakaryocytes) * 0.9, 
                   label = cell_cor),
               size = 3) +
+    labs(x = "Original Cell Expression",
+         y = "Megakaryocyte Cluster\nAverage Expression") +
     facet_wrap(~cell, nrow = 1) +
     coord_fixed() + 
     theme(legend.position = "top",
@@ -2036,6 +2120,8 @@ rs_plt <- ggplot(average_rsmk_expression,
               size = 3) +
     facet_wrap(~cell, nrow = 1) +
     coord_fixed() + 
+    labs(x = "Resampled Cell Expression",
+         y = "Megakaryocyte Cluster\nAverage Expression") +
     theme(legend.position = "top",
           strip.text = element_text(size = 8))
 
@@ -2053,4 +2139,132 @@ save_plot("expression_versus_cluster_average.pdf", plt,
           nrow = 2, ncol = 1,
           base_height = 4,
           base_aspect_ratio = 2)
+```
+
+
+## Find markers with downsampled MK cluster
+
+Rui had a great idea to downsample the # of cells in the MK cluster and find markers with the original cells, and the subsampled cells.
+
+There are 68 mks in this data set. 
+```{r downsample}
+mks <- sobj@meta.data[sobj@meta.data$cell_labels == "Megakaryocytes", ]
+rs_mks <- mks[mks$resampled == "original cell", ]
+not_re_mks <- mks[mks$resampled == "not resampled", ]
+not_mks <- sobj@meta.data[sobj@meta.data$cell_labels != "Megakaryocytes", ]
+
+n_mks_to_test <- seq(0, nrow(not_re_mks), by = 5)
+
+set.seed(42)
+not_re_mk_sampled <- map(n_mks_to_test, 
+                         ~sample_n(not_re_mks, .x))
+
+sampled_mks <- map(not_re_mk_sampled, 
+                   ~c(rownames(.x), 
+                      rownames(rs_mks)))
+
+all_cells_minus_not_sampled_mks <- map(sampled_mks,
+                                       ~c(.x, rownames(not_mks)))
+
+subsampled_markers <- map(all_cells_minus_not_sampled_mks, 
+                          function(x){
+                            tmp_dat <- SubsetData(sobj, cells.use = x)
+                            markers <- FindMarkers(tmp_dat, 
+                                                   "Megakaryocytes",
+                                                   only.pos = T)
+                            markers
+                          })
+
+
+og_rs_mks <- og_sobj@meta.data[og_sobj@meta.data$resampled, ]
+
+sampled_mks <- map(not_re_mk_sampled, 
+                   ~c(rownames(.x), 
+                      rownames(og_rs_mks)))
+
+all_cells_minus_not_sampled_mks <- map(sampled_mks,
+                                       ~c(.x, rownames(not_mks)))
+
+subsampled_markers_og <- map(all_cells_minus_not_sampled_mks,
+                          function(x){
+                            tmp_dat <- SubsetData(og_sobj, cells.use = x)
+                            markers <- FindMarkers(tmp_dat, 
+                                                   "Megakaryocytes",
+                                                   only_pos = T)
+                            markers
+                          })
+subsampled_markers <- map(subsampled_markers, 
+      ~tibble::rownames_to_column(.x, "gene")) 
+names(subsampled_markers) <- n_mks_to_test
+subsampled_markers <- bind_rows(subsampled_markers, .id = "n_mks")
+write_tsv(subsampled_markers,
+          "downsampled_mk_cluster_markers_resampling.txt")
+
+subsampled_markers_og <- map(subsampled_markers_og, 
+      ~tibble::rownames_to_column(.x, "gene")) 
+
+names(subsampled_markers_og) <- n_mks_to_test
+subsampled_markers_og <- bind_rows(subsampled_markers_og, .id = "n_mks")
+write_tsv(subsampled_markers_og,
+          "downsampled_mk_cluster_markers_no_resampling.txt")
+```
+
+```{r}
+subsampled_markers_og <- read_tsv("downsampled_mk_cluster_markers_no_resampling.txt") 
+
+subsampled_markers <- read_tsv("downsampled_mk_cluster_markers_resampling.txt")
+
+og_summary <- subsampled_markers_og %>% 
+  filter(p_val_adj < 0.01) %>% 
+  count(n_mks)
+
+rs_summary <- subsampled_markers %>% 
+    filter(p_val_adj < 0.01) %>% 
+  count(n_mks)
+
+summary_dat <- bind_rows(list("Original Library" = og_summary,
+                              "Resampled Library" = rs_summary),
+          .id = "expt")
+summary_dat <- mutate(summary_dat,
+                      n_mks = as.integer(n_mks) + 4) ## to account for resampled cells
+plt <- ggplot(summary_dat, 
+       aes(n_mks, n)) +
+  geom_bar(aes(fill = expt), 
+           stat = "identity", position = "dodge") +
+  scale_fill_brewer(palette = "Set1", name = "") +
+  labs(x = "# of Megakaryocytes in Cluster",
+       y = "# of Megakaryocyte\nmarkers discovered") +
+  theme(legend.pos = "top") +
+  guides(fill = guide_legend(nrow = 2))
+
+save_plot("resampling_marker_discovery_sensitivity.pdf", 
+          plt, 
+          base_height = 4,
+          base_aspect_ratio = 1)
+```
+
+
+```{r tsne_with_only_4_original_cells}
+mks <- sobj@meta.data[sobj@meta.data$cell_labels == "Megakaryocytes", ]
+rs_mks <- mks[mks$resampled == "original cell", ]
+not_mks <- sobj@meta.data[sobj@meta.data$cell_labels != "Megakaryocytes", ]
+only4mks <- c(rownames(rs_mks),
+  rownames(not_mks))
+sub_obj <- SubsetData(og_sobj, cells.use = only4mks)
+
+sub_obj <- RunPCA(sub_obj, pc.genes = rownames(sub_obj@data), 
+               pcs.compute = 20, 
+               do.print = F, seed.use = 20180525)
+sub_obj <- RunTSNE(sub_obj, dims.use = 1:15, seed.use = 20180525)
+sub_obj <- FindClusters(sub_obj,
+                     dims.use = 1:15, 
+                     k.param = 15,
+                     resolution = 1.2, 
+                     print.output = F, 
+                     force.recalc = T,
+                     random.seed = 20180525)
+
+plot_feature(sub_obj, gene = "GNG11", pt.alpha = 1)
+TSNEPlot(sub_obj, group.by = "resampled")
+TSNEPlot(sub_obj, group.by = "res.1.2")
 ```
