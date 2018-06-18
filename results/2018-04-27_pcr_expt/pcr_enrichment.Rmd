@@ -1492,21 +1492,37 @@ umi_edit_dist <- map2(new_umis,
   na.omit() %>% 
   mutate(ed = kentr::get_hamming_pairs(seq.x, seq.y)) %>% 
   group_by(barcode_10x, seq.y, genome, gene) %>% 
-  summarize(min_ed = min(ed)) %>% 
+  summarize(min_ed = as.integer(min(ed))) %>% 
   ungroup())
 
 umi_edit_dist <- bind_rows(umi_edit_dist, 
                            .id = "library")
 
-ggplot(umi_edit_dist, aes(barcode_10x, 
+cell_names_df <- map(cell_names, 
+                      ~data_frame(old_id = names(.x), 
+                                  new_id = .x)) %>% 
+  bind_rows(., .id = "library")
+
+umi_edit_dist_plt <- left_join(umi_edit_dist,
+                               cell_names_df, 
+                               by = c("barcode_10x" = "old_id",
+                                      "library")) %>% 
+  rename(cell_id = new_id)
+
+plt <- ggplot(umi_edit_dist_plt, aes(cell_id, 
                           min_ed)) + 
   geom_boxplot(coef = Inf) +
-  facet_wrap(~library, scales = "free_x") +
+  facet_wrap(~library, scales = "free_x", 
+             labeller = labeller(library = lib_names)) +
+  scale_y_continuous(breaks= scales::pretty_breaks()) +
   labs(y = "Minimum edit distance\noriginal vs. new UMIs") +
   theme(axis.text.x = element_text(angle = 90,
                                    hjust = 1, 
                                    vjust = 0.5),
         axis.title.x = element_blank())
+
+save_plot("umi_edit_distance.pdf", plt,
+          base_width = 8)
 
 ```
 
@@ -1853,12 +1869,16 @@ plt_dat <- resampled_metadat %>%
   select(new_id, library, contains("purity")) %>% 
   gather(type, purity, -new_id, -library) %>% 
   mutate(type = ifelse(str_detect(type, "^og"),
-                       str_replace(type, "^og_", "original_"),
-                       str_c("resampled_", type)),
+                       str_replace(type, "^og_", "Original_"),
+                       str_c("Resampled_", type)),
          library = factor(library, levels = resampled_libs)) %>% 
   separate(type, c("resampled", "not_import", "count_type"), sep = "_") %>% 
   select(-not_import)
 
+plt_dat <- mutate(plt_dat,
+                  count_type = ifelse(count_type == "reads",
+                                      "Reads",
+                                      "UMIs"))
 plt <- ggplot(plt_dat, aes(new_id, purity)) +
   geom_hline(aes(yintercept = 0.80), linetype = "dashed", 
              color = "grey", alpha = 0.75) +
@@ -1869,8 +1889,9 @@ plt <- ggplot(plt_dat, aes(new_id, purity)) +
 
   facet_wrap(count_type~library, 
              labeller = labeller(library = lib_names),
-             scales = "free_x") +
+             scales = "free_x", nrow = 1) +
   scale_color_brewer(palette = "Set1", name = "") +
+  guides(color = guide_legend(override.aes = list(size = 5))) + 
   labs(x = "",
        y = expression(paste( "Species Purity ", 
                              frac("Human", "Human + Mouse")))) +
@@ -1879,6 +1900,7 @@ plt <- ggplot(plt_dat, aes(new_id, purity)) +
                                    vjust = 0.5),
         legend.pos = "top")
 
+
 save_plot("species_specificity.pdf", plt,
-          base_height = 12, base_aspect_ratio = 0.5)
+          base_width = 12, base_height= 6.5)
 ```

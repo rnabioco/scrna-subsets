@@ -949,7 +949,7 @@ plt <- ggplot(plt_dat,
   scale_fill_brewer(palette = "Set1")
 
 save_plot("new_genes_barplot.pdf", plt, 
-          base_width = 4, base_height = 5)
+          base_width = 4.25, base_height = 5)
 
 ## species specific
 
@@ -1013,7 +1013,7 @@ plt <- ggplot(plt_dat,
       #  legend.key.size = unit(0.25, "pt")) 
 
 save_plot("new_genes_species_specific_barplot.pdf", plt, 
-          base_width = 3.6, base_height = 5) 
+          base_width = 4, base_height = 5) 
 ```
 
 
@@ -1427,22 +1427,30 @@ umi_edit_dist <- map2(new_umis,
   na.omit() %>% 
   mutate(ed = kentr::get_hamming_pairs(seq.x, seq.y)) %>% 
   group_by(barcode_10x, seq.y, genome, gene) %>% 
-  summarize(min_ed = min(ed)) %>% 
+  summarize(min_ed = as.integer(min(ed))) %>% 
   ungroup())
 
 umi_edit_dist <- bind_rows(umi_edit_dist, 
                            .id = "library")
 
-ggplot(umi_edit_dist, aes(barcode_10x, 
+umi_edit_dist <-  mutate(umi_edit_dist, 
+                          barcode_10x = factor(barcode_10x, 
+                              levels = str_c(cells[[resampled_lib]], "-1")))
+
+plt <- ggplot(umi_edit_dist, aes(barcode_10x, 
                           min_ed)) + 
   geom_boxplot(coef = Inf) +
-  facet_wrap(~library, scales = "free_x") +
+  scale_x_discrete(labels = cell_names) +
+  facet_wrap(~library, scales = "free_x", 
+             labeller = labeller(library = lib_names)) +
+  scale_y_continuous(breaks= scales::pretty_breaks()) +
   labs(y = "Minimum edit distance\noriginal vs. new UMIs") +
   theme(axis.text.x = element_text(angle = 90,
                                    hjust = 1, 
                                    vjust = 0.5),
         axis.title.x = element_blank())
 
+save_plot("umi_edit_distance.pdf", plt)
 rm(umi_seqs)
 ```
 
