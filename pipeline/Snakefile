@@ -78,7 +78,6 @@ rule extract_umi_positions:
   resources: all_threads = 1
   shell:
     """
-    module load gcc
     {BIN}/get_molecule_position {input.bam} \
       | gzip > {output}
     """
@@ -102,7 +101,6 @@ rule extract_umis:
   resources: all_threads = 1
   shell:
     """
-    module load gcc
     {BIN}/get_molecule_info {input.bam} \
       | gzip > {output}
     """
@@ -125,7 +123,6 @@ rule group_umis:
   resources: all_threads = 1
   shell:
     """
-    module load python3/3.6.5
     umi_tools group \
       --per-gene \
       --gene-tag "XT" \
@@ -161,14 +158,12 @@ rule count_umis:
   resources: all_threads = 1
   shell:
     """
-    module load python3/3.6.5
     umi_tools count \
       --per-gene \
       --gene-tag "XT" \
       --per-cell \
       --extract-umi-method=tag \
       --umi-tag "BX" \
-      --cell-tag-split=None \
       --cell-tag "CN" \
       --wide-format-cell-counts \
       -I {input.bam} \
@@ -199,8 +194,7 @@ rule featurecount_bam:
     DATA + "{projects}/featurecounts/log/gene_overlap.txt"
   shell:
     """
-
-    /vol3/home/riemondy/src/subread-1.6.0-Linux-x86_64/bin/featureCounts \
+    featureCounts \
       -a {TRANSCRIPTS} \
       -R BAM  \
       -T {threads} \

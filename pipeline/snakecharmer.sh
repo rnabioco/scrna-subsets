@@ -22,7 +22,7 @@ module load ucsc/v308
 module load fastqc/0.11.5
 module load samtools/1.5
 module load STAR/2.5.2a
-
+module load subread/1.6.2
 
 #### execute snakemake ####
 
