@@ -6,7 +6,8 @@ RMDS = [
   ["2018-05-16_mouse_human", "mouse_human_pulldown"],
   ["2018-05-15_pbmc", "mkcell_pulldown"],
   ["2018-04-27_pcr_expt", "pcr_enrichment"],
-  ["2018-05-21_new_old_umis", "umis"]
+  ["2018-05-21_new_old_umis", "umis"],
+  ["2018-07-10_species_specificity", "species-spec"]
 ]
 
 RMDS = [os.path.join(*x) for x in RMDS]

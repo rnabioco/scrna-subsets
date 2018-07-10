@@ -88,43 +88,6 @@ Load and organize a table for each library of read counts per cell per gene, and
 
 ```{r read_counts}
 
-umis_to_genes <- function(umipath, cells_to_exclude = c("Cell_unmatched")){
-  umis <- read_tsv(umipath,
-                   col_names = c("barcode_10x", 
-                                 "umi_molecule", 
-                                 "count")) %>% 
-    filter(barcode_10x != cells_to_exclude)
-  
-  mol_fields <- str_count(umis$umi_molecule[1], "::")
-  
-  if(mol_fields == 2){
-    umis <- separate(umis, umi_molecule, 
-                     into = c("seq", "genome", "gene"),
-                     sep = "::") %>% 
-      mutate(gene = str_c(genome, "::", gene))
-  } else if (mol_fields == 1){
-    umis <- separate(umis, umi_molecule, 
-                     into = c("seq", "gene"),
-                     sep = "::")
-  } else {
-    stop("separator :: missing from umi_molecule field")
-  }
-  
-  reads <- select(umis, 
-                  barcode_10x, 
-                  gene,
-                  count)
-  
-  reads <- group_by(reads, 
-                   barcode_10x, gene) %>% 
-    summarize(counts = sum(count))
-  
-  reads <- spread(reads, barcode_10x, counts, 
-                  fill = 0L)
-  
-  reads
-}
-
 ## read in umigroups flat file with read counts per umi per gene per cell
 ## expand out to a read count matrix
 umipaths <- file.path(data_dir, 
@@ -155,17 +118,6 @@ cell_obj_mdata <- map(cells,
 Next organize these tables into simple classes called `resampled-sets` to keep track of each experiment's relavant raw, processed, and meta data. 
 
 ```{r s3ify}
-#' simple class to hold info for each experiment
-create_sc_obj <- function(umi_df,
-                          read_df,
-                          cell_mdata_df){
-  x <- list()
-  class(x) <- "resampled-set"
-  x$umis <- umi_df
-  x$reads <- read_df
-  x$meta_dat <- cell_mdata_df
-  return(x)
-}
 
 sc_objs <- list(umi_dat, read_dat, cell_obj_mdata)
 sc_objs <- pmap(sc_objs, create_sc_obj)
@@ -180,75 +132,6 @@ Next perform basic processing.
   3) Compute per cell metrics (read and umi counts, sequencing saturation)
 
 ```{r store_matrices}
-
-tidy_to_matrix <- function(df){
-   df <- as.data.frame(df)
-   rownames(df) <- df[, 1]
-   df[, 1] <- NULL
-   mat <- as.matrix(df)
-   mat <- as(mat, "sparseMatrix")   
-   return(mat)
-}
-
-#' keep both tidy and matrix objs
-generate_matrices <- function(sc_obj){
-  sc_obj$umi_matrix <- tidy_to_matrix(sc_obj$umis)
-  sc_obj$read_matrix <- tidy_to_matrix(sc_obj$reads)
-  sc_obj
-}
-
-#' normalize by library size (Reads per Million)
-norm_libsize <- function(sc_obj){
-  sc_obj$norm_umi <- 1e6 * sweep(sc_obj$umi_matrix, 2, 
-                                 sum(as.vector(sc_obj$umi_matrix)), "/")
-  sc_obj$norm_reads <- 1e6 * sweep(sc_obj$read_matrix, 2, 
-                                   sum(as.vector(sc_obj$read_matrix)), "/")
-  sc_obj
-}
-
-add_metadata <- function(sc_obj, dat){
-  if (is.vector(dat)){
-    new_colname <- deparse(substitute(dat))
-    df <- data_frame(!!new_colname := dat)
-    df[[new_colname]] <- dat
-    df[["cell_id"]] <- names(dat)
-    sc_obj$meta_dat <- left_join(sc_obj$meta_dat,
-                                 df,
-                                 by = "cell_id")
-    
-  } else if (is.data.frame(dat)) {
-    sc_obj$meta_dat <- left_join(sc_obj$meta_dat,
-                                 dat,
-                                 by = "cell_id")
-  }
-  sc_obj
-}
-
-compute_summaries <- function(sc_obj){
-  ## raw counts
-  total_umis <- colSums(sc_obj$umi_matrix)
-  names(total_umis) <- colnames(sc_obj$umi_matrix)
-  total_reads <- colSums(sc_obj$read_matrix)
-  names(total_reads) <- colnames(sc_obj$read_matrix)
-  
-  ## norm counts
-  norm_total_umis <- colSums(sc_obj$norm_umi)
-  names(norm_total_umis) <- colnames(sc_obj$norm_umi)
-  norm_total_reads <- colSums(sc_obj$norm_reads)
-  names(norm_total_reads) <- colnames(sc_obj$norm_reads)
-    
-  sc_obj <- add_metadata(sc_obj, total_umis)
-  sc_obj <- add_metadata(sc_obj, total_reads)
-  sc_obj <- add_metadata(sc_obj, norm_total_umis)
-  sc_obj <- add_metadata(sc_obj, norm_total_reads)
-  
-  ## compute cDNA duplication rate 
-  sc_obj$meta_dat$cDNA_duplication <- 1 - (sc_obj$meta_dat$total_umis /
-                                             sc_obj$meta_dat$total_reads)
-  
-  sc_obj
-}
-
 sc_objs <- map(sc_objs, generate_matrices)
 sc_objs <- map(sc_objs, norm_libsize)
 sc_objs <- map(sc_objs, compute_summaries)
@@ -281,6 +164,18 @@ sc_objs <- map(sc_objs,
       sub_dat
     })
 
+```
+
+Next write out matrices to disk, for eventual GEO deposit
+
+```{r}
+dir.create("count_matrices", showWarnings = F)
+iwalk(sc_objs, 
+     function(x, y) {
+       out_fn <- file.path("count_matrices", paste0(y, "_umis.tsv"))
+       write_tsv(x$umis, out_fn)
+       R.utils::gzip(out_fn, overwrite = TRUE)
+     })
 ```
 
 ## cDNA duplication rate
@@ -2154,65 +2049,70 @@ Rui had a great idea to downsample the # of cells in the MK cluster and find mar
 
 There are 68 mks in this data set. 
 ```{r downsample}
-mks <- sobj@meta.data[sobj@meta.data$cell_labels == "Megakaryocytes", ]
-rs_mks <- mks[mks$resampled == "original cell", ]
-not_re_mks <- mks[mks$resampled == "not resampled", ]
-not_mks <- sobj@meta.data[sobj@meta.data$cell_labels != "Megakaryocytes", ]
 
-n_mks_to_test <- seq(0, nrow(not_re_mks), by = 5)
-
-set.seed(42)
-not_re_mk_sampled <- map(n_mks_to_test, 
-                         ~sample_n(not_re_mks, .x))
-
-sampled_mks <- map(not_re_mk_sampled, 
-                   ~c(rownames(.x), 
-                      rownames(rs_mks)))
-
-all_cells_minus_not_sampled_mks <- map(sampled_mks,
-                                       ~c(.x, rownames(not_mks)))
-
-subsampled_markers <- map(all_cells_minus_not_sampled_mks, 
-                          function(x){
-                            tmp_dat <- SubsetData(sobj, cells.use = x)
-                            markers <- FindMarkers(tmp_dat, 
-                                                   "Megakaryocytes",
-                                                   only.pos = T)
-                            markers
-                          })
-
-
-og_rs_mks <- og_sobj@meta.data[og_sobj@meta.data$resampled, ]
-
-sampled_mks <- map(not_re_mk_sampled, 
-                   ~c(rownames(.x), 
-                      rownames(og_rs_mks)))
-
-all_cells_minus_not_sampled_mks <- map(sampled_mks,
-                                       ~c(.x, rownames(not_mks)))
-
-subsampled_markers_og <- map(all_cells_minus_not_sampled_mks,
-                          function(x){
-                            tmp_dat <- SubsetData(og_sobj, cells.use = x)
-                            markers <- FindMarkers(tmp_dat, 
-                                                   "Megakaryocytes",
-                                                   only_pos = T)
-                            markers
-                          })
-subsampled_markers <- map(subsampled_markers, 
-      ~tibble::rownames_to_column(.x, "gene")) 
-names(subsampled_markers) <- n_mks_to_test
-subsampled_markers <- bind_rows(subsampled_markers, .id = "n_mks")
-write_tsv(subsampled_markers,
-          "downsampled_mk_cluster_markers_resampling.txt")
-
-subsampled_markers_og <- map(subsampled_markers_og, 
-      ~tibble::rownames_to_column(.x, "gene")) 
-
-names(subsampled_markers_og) <- n_mks_to_test
-subsampled_markers_og <- bind_rows(subsampled_markers_og, .id = "n_mks")
-write_tsv(subsampled_markers_og,
-          "downsampled_mk_cluster_markers_no_resampling.txt")
+resampled_file <- file.exists("downsampled_mk_cluster_markers_resampling.txt")
+not_resampled_file <- file.exists("downsampled_mk_cluster_markers_no_resampling.txt")
+if(!(resampled_file & not_resampled_file)){
+  mks <- sobj@meta.data[sobj@meta.data$cell_labels == "Megakaryocytes", ]
+  rs_mks <- mks[mks$resampled == "original cell", ]
+  not_re_mks <- mks[mks$resampled == "not resampled", ]
+  not_mks <- sobj@meta.data[sobj@meta.data$cell_labels != "Megakaryocytes", ]
+  
+  n_mks_to_test <- seq(0, nrow(not_re_mks), by = 5)
+  
+  set.seed(42)
+  not_re_mk_sampled <- map(n_mks_to_test, 
+                           ~sample_n(not_re_mks, .x))
+  
+  sampled_mks <- map(not_re_mk_sampled, 
+                     ~c(rownames(.x), 
+                        rownames(rs_mks)))
+  
+  all_cells_minus_not_sampled_mks <- map(sampled_mks,
+                                         ~c(.x, rownames(not_mks)))
+  
+  subsampled_markers <- map(all_cells_minus_not_sampled_mks, 
+                            function(x){
+                              tmp_dat <- SubsetData(sobj, cells.use = x)
+                              markers <- FindMarkers(tmp_dat, 
+                                                     "Megakaryocytes",
+                                                     only.pos = T)
+                              markers
+                            })
+  
+  
+  og_rs_mks <- og_sobj@meta.data[og_sobj@meta.data$resampled, ]
+  
+  sampled_mks <- map(not_re_mk_sampled, 
+                     ~c(rownames(.x), 
+                        rownames(og_rs_mks)))
+  
+  all_cells_minus_not_sampled_mks <- map(sampled_mks,
+                                         ~c(.x, rownames(not_mks)))
+  
+  subsampled_markers_og <- map(all_cells_minus_not_sampled_mks,
+                               function(x){
+                                 tmp_dat <- SubsetData(og_sobj, cells.use = x)
+                                 markers <- FindMarkers(tmp_dat, 
+                                                        "Megakaryocytes",
+                                                        only_pos = T)
+                                 markers
+                               })
+  subsampled_markers <- map(subsampled_markers, 
+                            ~tibble::rownames_to_column(.x, "gene")) 
+  names(subsampled_markers) <- n_mks_to_test
+  subsampled_markers <- bind_rows(subsampled_markers, .id = "n_mks")
+  write_tsv(subsampled_markers,
+            "downsampled_mk_cluster_markers_resampling.txt")
+  
+  subsampled_markers_og <- map(subsampled_markers_og, 
+                               ~tibble::rownames_to_column(.x, "gene")) 
+  
+  names(subsampled_markers_og) <- n_mks_to_test
+  subsampled_markers_og <- bind_rows(subsampled_markers_og, .id = "n_mks")
+  write_tsv(subsampled_markers_og,
+            "downsampled_mk_cluster_markers_no_resampling.txt")
+}
 ```
 
 ```{r}
