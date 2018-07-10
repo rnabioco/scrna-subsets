@@ -32,10 +32,32 @@ rule all:
       projects=PROJECTS),
     expand(DATA + "{projects}/star/alignments/Aligned_bc_exons_umigroups.bam",
       projects=PROJECTS),
+    expand(DATA + "{projects}/star/alignments/Aligned_bc_exons_umigroups_sorted.bam",
+      projects=PROJECTS),
     expand(DATA + "{projects}/umis/umigroups.txt.gz",
       projects=PROJECTS),
     expand(DATA + "{projects}/umis/umigroups_positions.txt.gz",
       projects=PROJECTS),
+
+rule sort_idx_final_bam:
+  """
+  Sort final bam with cell barcodes, umis, and gene tags
+  """
+  input:
+    bam = DATA + "{projects}/star/alignments/Aligned_bc_exons_umigroups.bam",
+  output:
+    bam = DATA + "{projects}/star/alignments/Aligned_bc_exons_umigroups_sorted.bam",
+  params:
+    job_name = "{projects}.umisort",
+    memory = "select[mem>50] rusage[mem=50]",
+  log:
+  threads: 6
+  resources: all_threads = 6
+  shell:
+    """
+    samtools sort -@ 5 {input.bam} > {output.bam}
+    samtools index -@ 5 {output.bam}
+    """
 
 rule extract_umi_positions:
   """ pull out all umis
@@ -264,7 +286,6 @@ rule star_align:
   resources: all_threads = 12
   shell:
     """
-    module load star
     STAR --runThreadN {threads} --genomeDir {STAR_IDX} \
       --readFilesIn {input} --readFilesCommand gunzip -c \
       --outSAMtype BAM SortedByCoordinate --runMode alignReads \
@@ -272,7 +293,6 @@ rule star_align:
       --outSAMmultNmax 1 --outStd Log \
       --outSAMunmapped Within
     samtools index {output.bam}
-    module unload star
     """
 
 rule append_r1_seq_to_R2:
@@ -288,14 +308,13 @@ rule append_r1_seq_to_R2:
     temp(DATA + '{projects}/fastq/modified/R2_trimmed.fastq.gz')
   params:
     job_name = "{projects}.renamefq",
-    memory = "select[mem>8] rusage[mem=8] span[hosts=1]"
+    memory = "select[mem>8] rusage[mem=8] "
   log:
     DATA + '{projects}/fastq/log/rename_fq.txt'
   resources: all_threads = 3 #cutadapt uses pigz 
   threads: 3
   shell:
     """
-    module load gcc
     {BIN}/append_read_name {input.R1} {input.R2} 30 \
       2> {log} \
       | cutadapt \
@@ -319,7 +338,7 @@ rule fastqc:
   params:
     out_dir = path.join(DATA, "{projects}", "fastq", "original", "fastqc"),
     job_name = '{projects}.fastqc',
-    memory =  "select[mem>80] rusage[mem=80] span[hosts=1]"
+    memory =  "select[mem>80] rusage[mem=80] "
   log:
     path.join(DATA, "{projects}", "fastq", "original", "fastqc", "log")
   threads:
@@ -327,10 +346,8 @@ rule fastqc:
   resources: all_threads = 6
   shell:
     """ 
-    module load fastqc
     mkdir -p {params.out_dir}
     fastqc -t {threads} -f fastq -o {params.out_dir} {input.R1} {input.R2} 
-    module unload fastqc fastqc
     """
 
 rule star_idx:
@@ -340,7 +357,7 @@ rule star_idx:
     {STAR_IDX_OUT}
   params:
     job_name = 'idx_star',
-    memory =  "select[mem>80] rusage[mem=80] span[hosts=1]"
+    memory =  "select[mem>80] rusage[mem=80] "
   threads:
     16
   resources: all_threads = 16
@@ -348,8 +365,6 @@ rule star_idx:
     STAR_IDX + "log.txt"
   shell:
     """
-    module load star
-    
     mkdir -p {STAR_IDX}
 
     STAR --runThreadN {threads} \
@@ -358,6 +373,4 @@ rule star_idx:
      --sjdbGTFfile {TRANSCRIPTS} \
      --runMode genomeGenerate \
      --outStd Log 
-
-    module unload star
     """ 

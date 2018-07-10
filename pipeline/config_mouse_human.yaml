@@ -12,18 +12,19 @@ PROJECTS:
   - 'lna_pulldown'
   - 'lna_control'
   - 'mouse_human_cell_pulldown' 
+  - 'public_10x_mh'
 
 GENOME_FA:
-  "/vol3/home/riemondy/Projects/shared_dbases/genomes/human_mouse_mix/human_mouse_gencode_hm38_renamed.fa"
+  "/beevol/home/riemondy/Projects/shared_dbases/genomes/human_mouse_mix/human_mouse_gencode_hm38_renamed.fa"
 
 STAR_IDX:
-  "/vol3/home/riemondy/Projects/shared_dbases/star/renamed_GRChm38_full/"
+  "/beevol/home/riemondy/Projects/shared_dbases/star/renamed_GRChm38_full/"
 
 TRANSCRIPTS:
-  "/vol3/home/riemondy/Projects/shared_dbases/annotation/human_mouse_mix/human_mouse_gencode_vm11_v25_renamed.gtf"
+  "/beevol/home/riemondy/Projects/shared_dbases/annotation/human_mouse_mix/human_mouse_gencode_vm11_v25_renamed.gtf"
 
 TRANSCRIPTS_BED:
-  "/vol3/home/riemondy/Projects/shared_dbases/annotation/human_mouse_mix/human_mouse_gencode_vm11_v25_renamed.bed"
+  "/beevol/home/riemondy/Projects/shared_dbases/annotation/human_mouse_mix/human_mouse_gencode_vm11_v25_renamed.bed"
 
 IDS:
   standard: "1_AGGCAGAA_L001" 
@@ -34,6 +35,7 @@ IDS:
   lna_pulldown: "3_TCCTGA_L001"
   lna_control: "4_AGGCTA_L001"
   mouse_human_cell_pulldown: "Control_H3_S1_L001"
+  public_10x_mh: "hgmm_S1_L001"
 
 LIB_MAP:
   standard: "PCR"
@@ -44,11 +46,16 @@ LIB_MAP:
   lna_pulldown: "LNA"
   lna_control: "LNA"
   mouse_human_cell_pulldown: "LNA"
-
+  public_10x_mh: "public_data_10x"
+  
 PCR:
-  bcs: "/vol3/home/riemondy/Projects/subsampled_scRNA/data/original/fastq/original/well_data_barcode_keys.txt"
+  bcs: "/beevol/home/riemondy/Projects/subsampled_scRNA/data/original/fastq/original/well_data_barcode_keys.txt"
   seq_extract: " 1 11 12 21 "  
 
 LNA:
-  bcs: "/vol3/home/riemondy/Projects/subsampled_scRNA/data/original_10x/fastq/original/barcodes_from_10x_run.txt"
+  bcs: "/beevol/home/riemondy/Projects/subsampled_scRNA/data/original_10x/fastq/original/barcodes_from_10x_run.txt"
+  seq_extract: " 1 16 17 26 "  
+
+public_data_10x:
+  bcs: "/beevol/home/riemondy/Projects/subsampled_scRNA/data/public_10x_mh/fastq/original/barcodes.txt"  
   seq_extract: " 1 16 17 26 "  
