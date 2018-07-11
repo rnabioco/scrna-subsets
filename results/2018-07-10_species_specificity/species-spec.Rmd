@@ -1,0 +1,312 @@
+---
+title: "Species specificity"
+author: "Kent Riemondy RBI"
+date: "`R Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: false
+    theme: cosmo
+    highlight: tango
+    fig_caption: true
+    code_folding: hide
+    df_print: paged
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(fig.width = 5)
+knitr::opts_chunk$set(fig.height = 5)
+```
+
+```{r, message=F, warning=F, echo=F}
+source("../../R/globals.R")
+color_palette = c("#bdbdbd", "#1F78B4")
+library("Seurat")
+```
+
+## mouse human mix
+
+First examine our control scRNA-seq dataset, which is a 1:1 nih-3t3:293t mix. 
+
+```{r}
+mtx_dat <- read_tsv(file.path("..", "2018-05-16_mouse_human", 
+                   "count_matrices", "original_10x_umis.tsv.gz"))
+
+mtx_dat <- tidy_to_matrix(mtx_dat)
+```
+
+Calculate species specificity
+```{r}
+
+calc_species_purity <- function(mat, 
+                               mouse_gene_prefix = "mm38::",
+                               human_gene_prefix = "hg38::"){
+  
+  ## get mouse and human reads
+  g_ids <- rownames(mat)
+  mouse_ids <- str_subset(g_ids, str_c("^", mouse_gene_prefix))
+  human_ids <- str_subset(g_ids, str_c("^", human_gene_prefix))
+  
+  mouse_counts <- colSums(mat[mouse_ids, ])
+  human_counts <- colSums(mat[human_ids, ])
+  counts <- data_frame(cells = colnames(mat),
+                       mouse_counts,
+                       human_counts)
+  ## calculate species purity (human / human + mouse)
+  res <- mutate(counts, 
+                purity = human_counts / (human_counts + mouse_counts))
+  res
+}
+
+cell_purity <- calc_species_purity(mtx_dat)
+
+ggplot(cell_purity,
+       aes(human_counts,
+           mouse_counts)) +
+  geom_point(aes(color = purity))
+```
+
+Next assign cells to species if > 80% UMIs are from 1 species
+
+```{r assign_species}
+cell_purity <- mutate(cell_purity,
+                      species = ifelse(purity > 0.80, 
+                                       "human",
+                                       ifelse(purity < 0.20, 
+                                              "mouse",
+                                              "multiplet"))) 
+
+ggplot(cell_purity,
+       aes(human_counts,
+           mouse_counts)) +
+  geom_point(aes(color = species))
+```
+
+Now examine the specicies purity for the mouse and human cells
+
+```{r species_purity}
+
+
+ggplot(cell_purity, aes(species,purity)) +
+  geom_boxplot(aes(fill = species))
+
+```
+
+## Downsample reads
+
+Examine species specifity as number of reads are downsampled. Use umi flat file to downsample reads.
+
+```{r}
+umi_fn <- file.path(data_dir, 
+                      "original_10x", 
+                      "umis",
+                      "umigroups.txt.gz")
+
+umis <- read_tsv(umi_fn,
+                 col_names = c("barcode_10x", 
+                                 "umi_molecule", 
+                                 "count")) %>% 
+    filter(barcode_10x != "Cell_unmatched")
+
+umis <- separate(umis, umi_molecule, c("umi_seq", "genome", "gene"), sep = "::")
+
+ds_funs <- funs("downsampled_99" = rbinom(length(.), ., 0.01),
+     "downsampled_90" = rbinom(length(.), ., 0.10),
+     "downsampled_80" = rbinom(length(.), ., 0.20),
+     "downsampled_70" = rbinom(length(.), ., 0.30),
+     "downsampled_60" = rbinom(length(.), ., 0.40),
+     "downsampled_50" = rbinom(length(.), ., 0.50),
+     "downsampled_40" = rbinom(length(.), ., 0.60),
+     "downsampled_30" = rbinom(length(.), ., 0.70),
+     "downsampled_20" = rbinom(length(.), ., 0.80),
+     "downsampled_10" = rbinom(length(.), ., 0.90),
+     "downsampled_0" = rbinom(length(.), ., 1.00))
+                    
+umis_ds <- mutate_at(umis, .vars = "count", .funs = ds_funs)
+```
+
+```{r plt_summaries}
+cols_to_summarize <- str_subset(colnames(umis_ds), "downsampled")
+names(cols_to_summarize) <- cols_to_summarize
+
+ds_umi_summaries <- map_dfr(cols_to_summarize,  
+                            function(x) {
+                              x <- sym(x)
+                              filter(umis_ds, !!x > 0) %>% 
+                              group_by(barcode_10x) %>% 
+                              summarize(human = sum(genome == "hg38"),
+                                mouse = sum(genome == "mm38"),
+                                purity = human / (human + mouse))},
+                            .id = "downsampling")
+
+ds_read_summaries <- map_dfr(cols_to_summarize,  
+                            function(x) {
+                              x <- sym(x)
+                              umis_ds %>% 
+                                filter(!!x > 0) %>% 
+                                group_by(barcode_10x, genome) %>% 
+                                summarize(counts = sum(!!x)) %>% 
+                                spread(genome, counts) %>% 
+                                mutate(purity = hg38 / (hg38 + mm38)) %>% 
+                                select(barcode_10x, 
+                                       mouse = mm38,
+                                       human = hg38,
+                                       purity)},
+                            .id = "downsampling")
+
+ds_summaries <- bind_rows(list(
+  UMIs = ds_umi_summaries,
+  Reads = ds_read_summaries), .id = "type")
+
+ds_summary <- inner_join(ds_summaries, 
+           cell_purity[, c("cells", "species")], 
+           by = c("barcode_10x" = "cells")) %>% 
+  separate(downsampling, c("id", "amount"), sep = "_") %>% 
+  mutate(species = str_to_title(species))
+
+x_axis_labels <- sort(unique(ds_summary$amount))
+
+reordered_labels <- x_axis_labels[order(as.numeric(x_axis_labels), decreasing = T)]
+
+ds_summary <- ds_summary %>% 
+  mutate(downsampling_percentage = factor(amount,
+                                          levels = reordered_labels))
+
+ds_summary <- filter(ds_summary, species != "Multiplet")
+
+ds_summary <- mutate(ds_summary, 
+                     adjusted_purity = ifelse(species == "Mouse",
+                                              1 - purity,
+                                              purity))
+p <- ggplot(ds_summary, 
+       aes(downsampling_percentage, adjusted_purity)) +
+  geom_boxplot(aes(fill = type),
+               coef = Inf) +
+  facet_wrap(~species, scales = "free_y") +
+  scale_fill_brewer(palette = "Set1",
+                    name = "") +
+  labs(x = "% downsampling",
+       y = "Species purity") +
+  theme(legend.position = "top") 
+
+p
+
+save_plot("species_spec_umi_vs_reads.pdf", p,
+          base_aspect_ratio = 1.5)
+```
+
+
+## Downsample reads from 10x dataset
+
+Examine species specifity as number of reads are downsampled. Use umi flat file to downsample reads.
+
+```{r 10x}
+
+barcodes <- dir(file.path(data_dir, "public_10x_mh", "fastq", "original"),
+                pattern = "*_*.tsv", full.names = T)
+names(barcodes) <- basename(barcodes) %>% str_split(., "_", simplify = T) %>% .[, 1]
+barcodes <- map_dfr(barcodes, read_tsv, col_names = "barcode_10x", .id = "species")
+
+umi_fn <- file.path(data_dir, 
+                      "public_10x_mh", 
+                      "umis",
+                      "umigroups.txt.gz")
+
+umis <- read_tsv(umi_fn,
+                 col_names = c("barcode_10x", 
+                                 "umi_molecule", 
+                                 "count")) %>% 
+    filter(barcode_10x != "Cell_unmatched")
+
+umis <- separate(umis, umi_molecule, c("umi_seq", "genome", "gene"), sep = "::")
+
+ds_funs <- funs("downsampled_99" = rbinom(length(.), ., 0.01),
+     "downsampled_90" = rbinom(length(.), ., 0.10),
+     "downsampled_80" = rbinom(length(.), ., 0.20),
+     "downsampled_70" = rbinom(length(.), ., 0.30),
+     "downsampled_60" = rbinom(length(.), ., 0.40),
+     "downsampled_50" = rbinom(length(.), ., 0.50),
+     "downsampled_40" = rbinom(length(.), ., 0.60),
+     "downsampled_30" = rbinom(length(.), ., 0.70),
+     "downsampled_20" = rbinom(length(.), ., 0.80),
+     "downsampled_10" = rbinom(length(.), ., 0.90),
+     "downsampled_0" = rbinom(length(.), ., 1.00))
+                    
+umis_ds <- mutate_at(umis, .vars = "count", .funs = ds_funs)
+```
+
+```{r plt_summaries_10x, fig.cap= "% of reads aligned to each species for mouse or human cells. Fastq data was downloaded from the 10x genomics website and processed through the same pipeline as our data."}
+cols_to_summarize <- str_subset(colnames(umis_ds), "downsampled")
+names(cols_to_summarize) <- cols_to_summarize
+
+ds_umi_summaries <- map_dfr(cols_to_summarize,  
+                            function(x) {
+                              x <- sym(x)
+                              filter(umis_ds, !!x > 0) %>% 
+                              group_by(barcode_10x) %>% 
+                              summarize(human = sum(genome == "hg38"),
+                                mouse = sum(genome == "mm38"),
+                                purity = human / (human + mouse))},
+                            .id = "downsampling")
+
+ds_read_summaries <- map_dfr(cols_to_summarize,  
+                            function(x) {
+                              x <- sym(x)
+                              umis_ds %>% 
+                                filter(!!x > 0) %>% 
+                                group_by(barcode_10x, genome) %>% 
+                                summarize(counts = sum(!!x)) %>% 
+                                spread(genome, counts) %>% 
+                                mutate(purity = hg38 / (hg38 + mm38)) %>% 
+                                select(barcode_10x, 
+                                       mouse = mm38,
+                                       human = hg38,
+                                       purity)},
+                            .id = "downsampling")
+
+ds_summaries <- bind_rows(list(
+  UMIs = ds_umi_summaries,
+  Reads = ds_read_summaries), .id = "type")
+
+ds_summary <- inner_join(ds_summaries, 
+           barcodes, 
+           by = "barcode_10x") %>% 
+  separate(downsampling, c("id", "amount"), sep = "_") %>% 
+  mutate(species = str_to_title(species))
+
+x_axis_labels <- sort(unique(ds_summary$amount))
+
+reordered_labels <- x_axis_labels[order(as.numeric(x_axis_labels), decreasing = T)]
+
+ds_summary <- ds_summary %>% 
+  mutate(downsampling_percentage = factor(amount,
+                                          levels = reordered_labels))
+
+
+
+ds_summary <- mutate(ds_summary, 
+                     adjusted_purity = ifelse(species == "Mouse",
+                                              1 - purity,
+                                              purity))
+ds_summary <- filter(ds_summary, adjusted_purity > 0.80)
+
+p <- ggplot(ds_summary, 
+       aes(downsampling_percentage, adjusted_purity)) +
+  geom_boxplot(aes(fill = type),
+               coef = Inf) +
+  facet_wrap(~species, scales = "free_y") +
+  scale_fill_brewer(palette = "Set1",
+                    name = "") +
+  labs(x = "% downsampling",
+       y = "Species purity") +
+  theme(legend.position = "top") 
+p
+
+save_plot("species_spec_umi_vs_reads_10xdata.pdf", p,
+          base_aspect_ratio = 1.5)
+```
