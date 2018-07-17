@@ -4,15 +4,13 @@
 DATA: "../data/"
 
 PROJECTS: 
-  - 'standard'
-  - 'original'
-  - 'biotinylated'
-  - 'phosphorothioate'
-  - 'original_10x'
-  - 'lna_pulldown'
-  - 'lna_control'
-  - 'mouse_human_cell_pulldown' 
-  - 'public_10x_mh'
+  - 'pcr/standard'
+  - 'pcr/original'
+  - 'pcr/biotinylated'
+  - 'pcr/phosphorothioate'
+  - 'lna_cell/mh_mix/original_10x'
+  - 'lna_cell/mh_mix/mouse_human_cell_pulldown' 
+  - 'lna_cell/public_10x_mh'
 
 GENOME_FA:
   "/beevol/home/riemondy/Projects/shared_dbases/genomes/human_mouse_mix/human_mouse_gencode_hm38_renamed.fa"
@@ -32,8 +30,6 @@ IDS:
   biotinylated: "BIOTINTEST_AGGCAGAA_L001"
   phosphorothioate: "PoolJH76_AGGCAGAA_L001"
   original_10x: "Control_S1_L001"
-  lna_pulldown: "3_TCCTGA_L001"
-  lna_control: "4_AGGCTA_L001"
   mouse_human_cell_pulldown: "Control_H3_S1_L001"
   public_10x_mh: "hgmm_S1_L001"
 
@@ -43,19 +39,17 @@ LIB_MAP:
   biotinylated: "PCR"
   phosphorothioate: "PCR"
   original_10x: "LNA"
-  lna_pulldown: "LNA"
-  lna_control: "LNA"
   mouse_human_cell_pulldown: "LNA"
   public_10x_mh: "public_data_10x"
   
 PCR:
-  bcs: "/beevol/home/riemondy/Projects/subsampled_scRNA/data/original/fastq/original/well_data_barcode_keys.txt"
+  bcs: "/beevol/home/riemondy/Projects/subsampled_scRNA/data/pcr/original/fastq/original/well_data_barcode_keys.txt"
   seq_extract: " 1 11 12 21 "  
 
 LNA:
-  bcs: "/beevol/home/riemondy/Projects/subsampled_scRNA/data/original_10x/fastq/original/barcodes_from_10x_run.txt"
+  bcs: "/beevol/home/riemondy/Projects/subsampled_scRNA/data/lna_cell/mh_mix/original_10x/fastq/original/barcodes_from_10x_run.txt"
   seq_extract: " 1 16 17 26 "  
 
 public_data_10x:
-  bcs: "/beevol/home/riemondy/Projects/subsampled_scRNA/data/public_10x_mh/fastq/original/barcodes.txt"  
+  bcs: "/beevol/home/riemondy/Projects/subsampled_scRNA/data/lna_cell/public_10x_mh/fastq/original/barcodes.txt"  
   seq_extract: " 1 16 17 26 "  

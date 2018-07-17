@@ -4,9 +4,9 @@
 DATA: "../data/"
 
 PROJECTS: 
-  - 'kirkpatrick'
-  - 'gene_pulldown'
-  - 'mkcell_pulldown'
+  - 'lna_cell/pbmc_expt/kirkpatrick'
+  - 'lna_cell/pbmc_expt/mkcell_pulldown'
+  - 'lna_gene/mk_gene_pulldown'
 
 GENOME_FA:
   "/beevol/home/riemondy/Projects/shared_dbases/genomes/GRCh38.primary_assembly.genome.fa"
@@ -19,14 +19,14 @@ TRANSCRIPTS:
 
 IDS:
   kirkpatrick: "C2_S1_L002"
-  gene_pulldown: "2_Dipaola_Kirkpatrick_C2_S1_L002"
+  mk_gene_pulldown: "2_Dipaola_Kirkpatrick_C2_S1_L002"
   mkcell_pulldown: "2_Dipaola_Kirkpatrick_C2_S1_L001"
 
 LIB_MAP:
   kirkpatrick: "LNA"
-  gene_pulldown: "LNA"
+  mk_gene_pulldown: "LNA"
   mkcell_pulldown: "LNA"
 
 LNA:
-  bcs: "/beevol/home/riemondy/Projects/subsampled_scRNA/data/kirkpatrick/fastq/original/barcodes_from_10x_run.txt"
+  bcs: "/beevol/home/riemondy/Projects/subsampled_scRNA/data/lna_cell/pbmc_expt/kirkpatrick/fastq/original/barcodes_from_10x_run.txt"
   seq_extract: " 1 16 17 26 "  

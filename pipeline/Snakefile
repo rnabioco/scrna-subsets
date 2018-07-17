@@ -18,14 +18,14 @@ BIN = "../bin"
 STAR_IDX_OUT = STAR_IDX + "Genome"
 TRANSCRIPTS = config["TRANSCRIPTS"]
 lib_map = config["LIB_MAP"]
-
+print([x for x in PROJECTS])
 rule all:
   input: 
     {STAR_IDX_OUT},
     expand(DATA + '{projects}/fastq/original/fastqc/{ids}_R1_001_fastqc.zip',
-      zip, ids=[IDS[x] for x in PROJECTS], projects=PROJECTS),
+      zip, ids=[IDS[path.basename(x)] for x in PROJECTS], projects=PROJECTS),
     expand(DATA + '{projects}/fastq/original/fastqc/{ids}_R2_001_fastqc.zip',
-      zip, ids=[IDS[x] for x in PROJECTS], projects=PROJECTS),
+      zip, ids=[IDS[path.basename(x)] for x in PROJECTS], projects=PROJECTS),
     expand(DATA + "{projects}/star/alignments/Aligned_bc_exons.bam",
       projects=PROJECTS),
     expand(DATA + "{projects}/dgematrix/dge_matrix.txt",
@@ -50,7 +50,7 @@ rule sort_idx_final_bam:
   params:
     job_name = "{projects}.umisort",
     memory = "select[mem>50] rusage[mem=50]",
-  log:
+  log: DATA + "{projects}/star/logs/idx_final"
   threads: 6
   resources: all_threads = 6
   shell:
@@ -119,7 +119,7 @@ rule group_umis:
     job_name = "{projects}.umigroup",
     memory = "select[mem>100] rusage[mem=100]",
   log:
-    DATA + "{projects}/star/log/make_groups.txt",
+    DATA + "{projects}/star/logs/make_groups.txt",
   resources: all_threads = 1
   shell:
     """
@@ -191,7 +191,7 @@ rule featurecount_bam:
   threads: 12
   resources: all_threads = 12
   log:
-    DATA + "{projects}/featurecounts/log/gene_overlap.txt"
+    DATA + "{projects}/featurecounts/logs/gene_overlap.txt"
   shell:
     """
     featureCounts \
@@ -251,17 +251,19 @@ rule barcode_bam:
     bai = temp(DATA + "{projects}/star/alignments/Aligned_bc.bam.bai"),
   params:
     idx = _get_seq_and_umi,
-    job_name = "{project.tagbc}",
+    job_name = "{projects.tagbc}",
     memory = "select[mem>80] rusage[mem=80]",
+    seen_bcs = DATA + "{projects}/star/logs/seen_barcodes.txt"
   log:
-    DATA + "{projects}/star/log/tag_bc.txt"
+    DATA + "{projects}/star/logs/tag_bc.txt"
   resources: all_threads = 1
   shell:
     """
-    module load gcc
-    {BIN}/barcode_tag_bam {input.bam} {input.bcs} {output.bam} {params.idx}
+    {BIN}/barcode_tag_bam {input.bam} {input.bcs} \
+      {output.bam} {params.idx} \
+      > {params.seen_bcs}
+    
     samtools index {output.bam}
-    module unload gcc
     """
 
 rule star_align:
@@ -275,7 +277,7 @@ rule star_align:
     job_name = "{project.star}",
     memory = "select[mem>80] rusage[mem=80]",
   log:
-    DATA + "{projects}/star/log/alignment.txt"
+    DATA + "{projects}/star/logs/alignment.txt"
   threads: 12
   resources: all_threads = 12
   shell:
@@ -296,15 +298,17 @@ rule append_r1_seq_to_R2:
       also trim poly(A) tails from R2 using cutadapt
   """
   input:
-    R1 = lambda wildcards: os.path.join(DATA, wildcards.projects, 'fastq','original', IDS[wildcards.projects] + '_R1_001.fastq.gz'),
-    R2 = lambda wildcards: os.path.join(DATA, wildcards.projects, 'fastq','original', IDS[wildcards.projects] + '_R2_001.fastq.gz')
+    R1 = lambda wildcards: os.path.join(DATA, wildcards.projects,
+      'fastq','original', IDS[path.basename(wildcards.projects)] + '_R1_001.fastq.gz'),
+    R2 = lambda wildcards: os.path.join(DATA, wildcards.projects, 
+      'fastq','original', IDS[path.basename(wildcards.projects)] + '_R2_001.fastq.gz')
   output:
     temp(DATA + '{projects}/fastq/modified/R2_trimmed.fastq.gz')
   params:
     job_name = "{projects}.renamefq",
-    memory = "select[mem>8] rusage[mem=8] "
+    memory = "select[mem>8] rusage[mem=8] ",
   log:
-    DATA + '{projects}/fastq/log/rename_fq.txt'
+    DATA + '{projects}/fastq/logs/rename_fq.txt'
   resources: all_threads = 3 #cutadapt uses pigz 
   threads: 3
   shell:
@@ -317,7 +321,7 @@ rule append_r1_seq_to_R2:
         -m 20 \
         -q 10 \
         -o {output} - \
-        > {log}
+        >> {log}
     """
 
 rule fastqc:
@@ -334,7 +338,7 @@ rule fastqc:
     job_name = '{projects}.fastqc',
     memory =  "select[mem>80] rusage[mem=80] "
   log:
-    path.join(DATA, "{projects}", "fastq", "original", "fastqc", "log")
+    path.join(DATA, "{projects}", "fastq", "original", "fastqc", "logs")
   threads:
     6
   resources: all_threads = 6

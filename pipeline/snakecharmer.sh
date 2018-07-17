@@ -28,8 +28,8 @@ module load subread/1.6.2
 
 snakemake --drmaa "$args" \
     --snakefile Snakefile \
-    --jobs 72 \
-    --resources all_threads=72 \
+    --jobs 24 \
+    --resources all_threads=24 \
     --latency-wait 50 \
     --rerun-incomplete  \
     --configfile config_mouse_human.yaml 
