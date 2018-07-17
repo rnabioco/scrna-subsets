@@ -85,6 +85,9 @@ int main(int argc, char *argv[])
   const bam_hdr_t *header = sam_hdr_read(bfile.in) ; // get header
   bam1_t *aln = bam_init1() ; // initialize empty alignment container
   samFile *fp_out = sam_open(fn_out, "wb") ; //initialize output bam
+  
+  // track seen barcodes and write to stdout
+  std::map<std::string, int> seen_bcs ;
 
   sam_hdr_write(fp_out, header) ;
   while (bam_read1(bfile.bz, aln) > 0) { // negative return values are errors
@@ -97,6 +100,9 @@ int main(int argc, char *argv[])
     auto read_seq = id_elements.back() ; //get seq
     auto cbc = read_seq.substr(cbc_start_idx, cbc_len) ;
     auto umi = read_seq.substr(umi_start_idx, umi_len) ;
+
+    // count seen barcode
+    seen_bcs[cbc] += 1 ; 
 
     //see if cell barcode is in map, if not take first one 1 hamming dist away
     // otherwise report unmatched
@@ -129,6 +135,10 @@ int main(int argc, char *argv[])
     bam_aux_append(aln, "CB", 'Z', strlen(cbc_c) + 1, (uint8_t *)(cbc_c));
     sam_write1(fp_out, header, aln) ; //write alignment
 
+  }
+  
+  for(auto const& it:seen_bcs) {
+    std::cout << it.first << "\t" << it.second << std::endl ; 
   }
 
   bam_destroy1(aln) ;
