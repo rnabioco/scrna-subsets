@@ -1,0 +1,91 @@
+shell.executable("/bin/bash")
+shell.prefix("source ~/.bash_profile; ")
+
+import glob
+import os
+from os import path
+
+""" Snakemake pipeline to preprocess VDJ libraries for use with tracer""" 
+
+configfile: "config_tcr.yaml"
+
+DATA = config["DATA"]
+PROJECTS = config["PROJECTS"]
+BCS_TO_KEEP = config["BCS_TO_KEEP"]
+IDS = config["IDS"]
+rule all:
+  input: 
+    expand(DATA + '{projects}/fastq/modified/{read_type}_trimmed.fastq.gz',
+      projects=PROJECTS, read_type = ["R1", "R2"]),
+
+rule trim: 
+  input:
+    R1 = temp(DATA + '{projects}/fastq/modified/R1_renamed.fastq.gz'),
+    R2 = temp(DATA + '{projects}/fastq/modified/R2_renamed.fastq.gz')
+  output:
+    R1 = DATA + "{projects}/fastq/modified/R1_trimmed.fastq.gz",
+    R2 = DATA + "{projects}/fastq/modified/R2_trimmed.fastq.gz",
+  params:
+    job_name = "{projects}.trim",
+    memory = "select[mem>8] rusage[mem=8]",
+  log:
+    DATA + "{projects}/fastq/logs/trim.txt"
+  threads: 3
+  resources: all_threads = 3
+  shell:
+    """
+    # settings taken from cellranger TRIM_READS _stdout
+    # see cellranger/mro/stages/vdj/trim_reads/__init__.py
+    cutadapt \
+      -m 1 \
+      -e 0.12 \
+      --times 3 \
+      --overlap 5 \
+      -f fastq \
+      -o {output.R1} \
+      -p {output.R2} \
+      -g spacer=^TTTCTTATATGGG \
+      -a R2_rc=AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC \
+      -a P7_rc=ATCTCGTATGCCGTCTTCTGCTTG \
+      -a polyA=AAAAAAAAAAAAAAAAAAAA \
+      -a rt_primer=AAGCAGTGGTATCAACGCAGAGTACAT \
+      -A spacer_rc=CCCATATAAGAAA \
+      -A R1_rc=AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT \
+      -A P5_rc=AGATCTCGGTGGTCGCCGTATCATT \
+      -A polyA=AAAAAAAAAAAAAAAAAAAA \
+      -A rt_primer=AAGCAGTGGTATCAACGCAGAGTACAT \
+      {input.R1} \
+      {input.R2} 
+    """
+
+rule append_barcodes:
+  """ move R1 sequence to R1 and R2 read name 
+      also filter to keep cell barcodes of interest
+  """
+  input:
+    R1 = lambda wildcards: os.path.join(DATA, wildcards.projects,
+      'fastq','original', IDS[path.basename(wildcards.projects)] + '_R1_001.fastq.gz'),
+    R2 = lambda wildcards: os.path.join(DATA, wildcards.projects, 
+      'fastq','original', IDS[path.basename(wildcards.projects)] + '_R2_001.fastq.gz')
+  output:
+    R1 = temp(DATA + '{projects}/fastq/modified/R1_renamed.fastq.gz'),
+    R2 = temp(DATA + '{projects}/fastq/modified/R2_renamed.fastq.gz')
+  params:
+    job_name = "{projects}.renamefq",
+    whitelist = BCS_TO_KEEP,
+    memory = "select[mem>8] rusage[mem=8] ",
+  log:
+    DATA + '{projects}/fastq/logs/rename_fq.txt'
+  resources: all_threads = 1 
+  threads: 3
+  shell:
+    """
+    umi_tools extract \
+      --bc-pattern=CCCCCCCCCCCCCCCCNNNNNNNNNN \
+      --stdin {input.R1} \
+      --stdout {output.R1} \
+      --read2-in {input.R2} \
+      --read2-out {output.R2} \
+      --filter-cell-barcode \
+      --whitelist {params.whitelist}  
+    """

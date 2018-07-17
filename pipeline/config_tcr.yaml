@@ -1,0 +1,8 @@
+
+DATA: "../data/"
+PROJECTS: 
+    - 'tcr_resampling'
+IDS:
+    tcr_resampling: "JH109_S46_L004"
+
+BCS_TO_KEEP: "/beevol/home/riemondy/Projects/subsampled_scRNA/data/tcr_resampling/fastq/original/barcodes.txt"
