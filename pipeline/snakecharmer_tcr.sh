@@ -19,6 +19,7 @@ args=' -q rna -o {log}.out -e {log}.err -J {params.job_name} -R " {params.memory
 module load modules modules-init modules-python
 
 module load samtools/1.5
+module load bowtie2/2.3.2
 
 #### execute snakemake ####
 

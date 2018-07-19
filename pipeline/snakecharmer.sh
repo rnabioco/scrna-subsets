@@ -27,9 +27,9 @@ module load subread/1.6.2
 #### execute snakemake ####
 
 snakemake --drmaa "$args" \
-    --snakefile Snakefile \
-    --jobs 24 \
-    --resources all_threads=24 \
+    --snakefile 5p.snake \
+    --jobs 36 \
+    --resources all_threads=36 \
     --latency-wait 50 \
     --rerun-incomplete  \
-    --configfile config_mouse_human.yaml 
+    --configfile config_human_5p.yaml 

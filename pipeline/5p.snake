@@ -171,7 +171,7 @@ rule count_umis:
       -L {output.summary}
     """
 
-def _get_strand(wildcards):
+def _get_fc_settings(wildcards):
   """ lookup global dictionary lib_map via sample
       wildcard and return settings for strand
   """
@@ -179,9 +179,9 @@ def _get_strand(wildcards):
   id = os.path.basename(wildcards.projects)
   if id in lib_map:
      lib_attrs = lib_map[id]
-     strand_settings = config[lib_attrs]["strand_params"]
+     strand_settings = config[lib_attrs]["fc_params"]
   else:
-     print("warning: no strand settings found for library: {}".format(id),
+     print("warning: no fc settings found for library: {}".format(id),
        file = sys.stderr)
      strand_settings = ""
 
@@ -200,7 +200,7 @@ rule featurecount_bam:
     bai = DATA + "{projects}/star/alignments/Aligned_bc_exons.bam.bai",
     fc_summary = DATA + "{projects}/featurecounts/assigned_genes.txt"
   params:
-    strand = _get_strand,
+    settings = _get_fc_settings,
     prefix = DATA + "{projects}/featurecounts/assigned_genes.txt",
     bam = DATA + "{projects}/featurecounts/Aligned_bc.bam.featureCounts.bam",
     job_name = "{projects}.tagexons",
@@ -216,7 +216,7 @@ rule featurecount_bam:
       -R BAM  \
       -T {threads} \
       -o {params.prefix} \
-       {params.strand}  \
+       {params.settings}  \
       -g "gene_name" \
       {input.bam}
 
@@ -285,7 +285,8 @@ rule barcode_bam:
 
 rule star_align:
   input:
-    DATA + "{projects}/fastq/modified/R2_trimmed.fastq.gz"
+    R1 = DATA + "{projects}/fastq/modified/R1_renamed.fastq.gz",
+    R2 = DATA + "{projects}/fastq/modified/R2_renamed.fastq.gz"
   output:
     bam = temp(DATA + "{projects}/star/alignments/Aligned.sortedByCoord.out.bam"),
     bai = temp(DATA + "{projects}/star/alignments/Aligned.sortedByCoord.out.bam.bai"),
@@ -300,7 +301,7 @@ rule star_align:
   shell:
     """
     STAR --runThreadN {threads} --genomeDir {STAR_IDX} \
-      --readFilesIn {input} --readFilesCommand gunzip -c \
+      --readFilesIn {input.R1} {input.R2}  --readFilesCommand gunzip -c \
       --outSAMtype BAM SortedByCoordinate --runMode alignReads \
       --outFileNamePrefix {params.out_put} \
       --outSAMmultNmax 1 --outStd Log \
@@ -308,11 +309,9 @@ rule star_align:
     samtools index {output.bam}
     """
 
-rule append_r1_seq_to_R2:
-  """ move R1 sequence to R2 read name and
-      trim R1 sequence to 30 nucleotides
-
-      also trim poly(A) tails from R2 using cutadapt
+rule append_barcodes:
+  """ move R1 sequence to R1 and R2 read name 
+      also filter to keep cell barcodes of interest
   """
   input:
     R1 = lambda wildcards: os.path.join(DATA, wildcards.projects,
@@ -320,25 +319,23 @@ rule append_r1_seq_to_R2:
     R2 = lambda wildcards: os.path.join(DATA, wildcards.projects, 
       'fastq','original', IDS[path.basename(wildcards.projects)] + '_R2_001.fastq.gz')
   output:
-    temp(DATA + '{projects}/fastq/modified/R2_trimmed.fastq.gz')
+    R1 = temp(DATA + '{projects}/fastq/modified/R1_renamed.fastq.gz'),
+    R2 = temp(DATA + '{projects}/fastq/modified/R2_renamed.fastq.gz')
   params:
     job_name = "{projects}.renamefq",
     memory = "select[mem>8] rusage[mem=8] ",
   log:
     DATA + '{projects}/fastq/logs/rename_fq.txt'
-  resources: all_threads = 3 #cutadapt uses pigz 
+  resources: all_threads = 1 
   threads: 3
   shell:
     """
-    {BIN}/append_read_name {input.R1} {input.R2} 30 \
-      2> {log} \
-      | cutadapt \
-        -a 'A{{100}}' \
-        -O 6 \
-        -m 20 \
-        -q 10 \
-        -o {output} - \
-        >> {log}
+    umi_tools extract \
+      --bc-pattern=NNNNNNNNNNNNNNNNNNNNNNNNNN \
+      --stdin {input.R1} \
+      --stdout {output.R1} \
+      --read2-in {input.R2} \
+      --read2-out {output.R2} 
     """
 
 rule fastqc:

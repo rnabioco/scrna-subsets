@@ -1,8 +1,14 @@
 
 DATA: "../data/"
-PROJECTS: 
-    - 'tcr_resampling'
-IDS:
-    tcr_resampling: "JH109_S46_L004"
+DBASES: "../dbases/"
 
-BCS_TO_KEEP: "/beevol/home/riemondy/Projects/subsampled_scRNA/data/tcr_resampling/fastq/original/barcodes.txt"
+PROJECTS: 
+    - 'tcr_resampling/resampled'
+    - 'tcr_resampling/original'
+IDS:
+    resampled: "JH109_S46_L004"
+    original: "Tcell_S1_L001"
+
+BCS_TO_KEEP: "/beevol/home/riemondy/Projects/subsampled_scRNA/data/tcr_resampling/resampled/fastq/original/barcodes.txt"
+REF_FA: "/beevol/home/riemondy/Projects/10x_data/tcr/results/2018-05-18_jurkat_raji/VDJ_Tcell/outs/consensus.fasta"
+

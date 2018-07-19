@@ -13,10 +13,95 @@ DATA = config["DATA"]
 PROJECTS = config["PROJECTS"]
 BCS_TO_KEEP = config["BCS_TO_KEEP"]
 IDS = config["IDS"]
+DBASES = config["DBASES"]
+REF_FA = config["REF_FA"]
+
+# bowtie indexes
+idx_nums = [1, 2, 3, 4, "rev.1", "rev.2"]
+bt_idx_path = DBASES + "tcr/bowtie_idx/tcr"
+bt_idxs = bt_idx_path + ".1.bt2"
+
+"""look up barcode file to determine name of per cell fastqs/alignments"""
+    
+CELLS = []
+with open(BCS_TO_KEEP) as f:
+    for line in f:
+        CELLS.append(line.strip('\n'))
+
 rule all:
   input: 
     expand(DATA + '{projects}/fastq/modified/{read_type}_trimmed.fastq.gz',
       projects=PROJECTS, read_type = ["R1", "R2"]),
+    expand(DATA + "{projects}/bowtie2/{cells}.bam",
+      projects=PROJECTS, cells = CELLS),
+    
+CELLS = []
+with open(BCS_TO_KEEP) as f:
+    for line in f:
+        CELLS.append(line.strip('\n'))
+
+rule align:
+  input:
+    R1 = DATA + "{projects}/fastq/modified/{cell}_R1.fastq",
+    R2 = DATA + "{projects}/fastq/modified/{cell}_R2.fastq",
+    idx = bt_idxs
+  output:
+    bam = DATA + "{projects}/bowtie2/{cell}.bam",
+    fq = DATA + "{projects}/bowtie2/{cell}_unaligned.fastq",
+  params:
+    idx_path = bt_idx_path,
+    job_name = "{projects}.{cell}.align",
+    memory = "select[mem>8] rusage[mem=8]",
+  log:
+    DATA + "{projects}/bowtie2/logs/{cell}_align.txt"
+  threads: 12
+  resources: all_threads = 12
+  shell:
+    """
+      bowtie2 -p {threads} -q -X 1000 \
+      --rf \
+      --un  {output.fq} \
+      -x {params.idx_path} \
+      -1 {input.R1} \
+      -2 {input.R2} \
+      | samtools view -bhSF4 - \
+      | samtools sort - -o {output.bam}
+
+      samtools index {output.bam}
+    """
+
+rule bowtie2_idx:
+  input:
+    REF_FA,
+  output:
+    bt_idxs
+  params:
+    job_name = "bowtieidx",
+    memory = "select[mem>4] rusage[mem=4]",
+  log:
+    bt_idx_path
+  shell:
+    """
+    bowtie2-build {input} {bt_idx_path}
+    """
+rule split_to_cells:
+  input:
+    R1 = DATA + "{projects}/fastq/modified/R1_trimmed.fastq.gz",
+    R2 = DATA + "{projects}/fastq/modified/R2_trimmed.fastq.gz",
+  output:
+    DATA + "{projects}/fastq/modified/{cell}_R1.fastq", 
+    DATA + "{projects}/fastq/modified/{cell}_R2.fastq", 
+  params:
+    job_name = "{projects}.split",
+    memory = "select[mem>8] rusage[mem=8]",
+  log:
+    DATA + "{projects}/fastq/logs/split.txt"
+  threads: 3
+  resources: all_threads = 3
+  shell:
+    """
+    {BIN}/extract_reads {input.R1} {input.R2} {BCS_TO_KEEP}
+    """
 
 rule trim: 
   input:
@@ -37,7 +122,7 @@ rule trim:
     # settings taken from cellranger TRIM_READS _stdout
     # see cellranger/mro/stages/vdj/trim_reads/__init__.py
     cutadapt \
-      -m 1 \
+      -m 18 \
       -e 0.12 \
       --times 3 \
       --overlap 5 \
