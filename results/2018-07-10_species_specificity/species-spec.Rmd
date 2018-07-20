@@ -130,7 +130,7 @@ ds_funs <- funs("downsampled_99" = rbinom(length(.), ., 0.01),
 umis_ds <- mutate_at(umis, .vars = "count", .funs = ds_funs)
 ```
 
-```{r plt_summaries}
+```{r summaries}
 cols_to_summarize <- str_subset(colnames(umis_ds), "downsampled")
 names(cols_to_summarize) <- cols_to_summarize
 
@@ -179,25 +179,11 @@ ds_summary <- ds_summary %>%
 
 ds_summary <- filter(ds_summary, species != "Multiplet")
 
-ds_summary <- mutate(ds_summary, 
+ds_summary_our_data <- mutate(ds_summary, 
                      adjusted_purity = ifelse(species == "Mouse",
                                               1 - purity,
                                               purity))
-p <- ggplot(ds_summary, 
-       aes(downsampling_percentage, adjusted_purity)) +
-  geom_boxplot(aes(fill = type),
-               coef = Inf) +
-  facet_wrap(~species, scales = "free_y") +
-  scale_fill_brewer(palette = "Set1",
-                    name = "") +
-  labs(x = "% downsampling",
-       y = "Species purity") +
-  theme(legend.position = "top") 
 
-p
-
-save_plot("species_spec_umi_vs_reads.pdf", p,
-          base_aspect_ratio = 1.5)
 ```
 
 
@@ -240,7 +226,7 @@ ds_funs <- funs("downsampled_99" = rbinom(length(.), ., 0.01),
 umis_ds <- mutate_at(umis, .vars = "count", .funs = ds_funs)
 ```
 
-```{r plt_summaries_10x, fig.cap= "% of reads aligned to each species for mouse or human cells. Fastq data was downloaded from the 10x genomics website and processed through the same pipeline as our data."}
+```{r summaries_10x}
 cols_to_summarize <- str_subset(colnames(umis_ds), "downsampled")
 names(cols_to_summarize) <- cols_to_summarize
 
@@ -293,18 +279,40 @@ ds_summary <- mutate(ds_summary,
                      adjusted_purity = ifelse(species == "Mouse",
                                               1 - purity,
                                               purity))
-ds_summary <- filter(ds_summary, adjusted_purity > 0.80)
+ds_summary_10x_data <- filter(ds_summary, adjusted_purity > 0.80)
 
-p <- ggplot(ds_summary, 
+```
+
+```{r make_plots, fig.cap= "% of reads aligned to each species for mouse or human cells for our NIH-3T3:293T dataset"}
+p <- ggplot(ds_summary_our_data, 
        aes(downsampling_percentage, adjusted_purity)) +
   geom_boxplot(aes(fill = type),
-               coef = Inf) +
+               coef = Inf, size = 0.25) +
   facet_wrap(~species, scales = "free_y") +
   scale_fill_brewer(palette = "Set1",
                     name = "") +
   labs(x = "% downsampling",
        y = "Species purity") +
   theme(legend.position = "top") 
+
+p
+
+save_plot("species_spec_umi_vs_reads.pdf", p,
+          base_aspect_ratio = 1.5)
+```
+
+```{r make_10x_plots, fig.cap= "% of reads aligned to each species for mouse or human cells. Fastq data was downloaded from the 10x genomics website and processed through the same pipeline as our data."}
+p <- ggplot(ds_summary_10x_data, 
+       aes(downsampling_percentage, adjusted_purity)) +
+  geom_boxplot(aes(fill = type),
+               coef = Inf, size = 0.25) +
+  facet_wrap(~species, scales = "free_y") +
+  scale_fill_brewer(palette = "Set1",
+                    name = "") +
+  labs(x = "% downsampling",
+       y = "Species purity") +
+  theme(legend.position = "top") 
+
 p
 
 save_plot("species_spec_umi_vs_reads_10xdata.pdf", p,

@@ -57,7 +57,7 @@ plot_feature <- function(seurat_obj,
                          label_text = FALSE,
                          label.size = 6,
                          .cols = NULL,
-                         legend_names = NULL,
+                         legend_name = NULL,
                          cell_filter = NULL,
                          palette_type = "cloupe",
                          col_pal = "Reds",
@@ -116,16 +116,19 @@ plot_feature <- function(seurat_obj,
       p <- p + viridis::scale_color_viridis(discrete = F,
                                    direction = -1,
                                    option = col_pal,
-                                   limits = max_y)
+                                   limits = max_y, 
+                                   name = legend_name)
     } else if (palette_type == "brewer") {
       p <- p + scale_color_distiller(limits = max_y,
                                      palette = col_pal,
-                                     direction = 1)
+                                     direction = 1, 
+                                     name = legend_name)
     } else if (palette_type == "cloupe") {
       cols <- RColorBrewer::brewer.pal(11, "RdGy")[c(1:5, 7)]
       
       p <- p + scale_color_gradientn(limits = max_y,
-                                     colors = rev(cols))
+                                     colors = rev(cols), 
+                                     name = legend_name)
     }
   }
   p

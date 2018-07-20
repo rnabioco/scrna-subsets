@@ -5,9 +5,9 @@ import glob
 import os
 from os import path
 
-""" Snakemake pipeline to process wafergen or 10x single cell libraries """
+""" Snakemake pipeline to process 10x 5p single cell libraries """
 
-configfile: "config_human.yaml"
+configfile: "config_human_5p.yaml"
 
 DATA = config["DATA"]
 PROJECTS = config["PROJECTS"]
@@ -36,8 +36,6 @@ rule all:
       projects=PROJECTS),
     expand(DATA + "{projects}/umis/umigroups.txt.gz",
       projects=PROJECTS),
-    expand(DATA + "{projects}/umis/umigroups_positions.txt.gz",
-      projects=PROJECTS),
 
 rule sort_idx_final_bam:
   """
@@ -57,29 +55,6 @@ rule sort_idx_final_bam:
     """
     samtools sort -@ 5 {input.bam} > {output.bam}
     samtools index -@ 5 {output.bam}
-    """
-
-rule extract_umi_positions:
-  """ pull out all umis
-  from bam and generate 
-  flat file for parsing in R with positions
-  
-  Requires bam sorted by error corrected cell barcode
-  """
-  input:
-    bam = DATA + "{projects}/star/alignments/Aligned_bc_exons_umigroups.bam",
-  output:
-    DATA + "{projects}/umis/umigroups_positions.txt.gz",
-  params:
-    job_name = "{projects}.umigroups",
-    memory = "select[mem>50] rusage[mem=50]",
-  log:
-    DATA + "{projects}/umis/logs/make_groups.txt",
-  resources: all_threads = 1
-  shell:
-    """
-    {BIN}/get_molecule_position {input.bam} \
-      | gzip > {output}
     """
 
 rule extract_umis:
@@ -105,7 +80,6 @@ rule extract_umis:
       | gzip > {output}
     """
 
-
 rule group_umis:
   """ umi_tools to group UMIs
   umi_tools 0.5.3
@@ -124,6 +98,7 @@ rule group_umis:
   shell:
     """
     umi_tools group \
+      --paired \
       --per-gene \
       --gene-tag "XT" \
       --per-cell \
@@ -159,6 +134,7 @@ rule count_umis:
   shell:
     """
     umi_tools count \
+      --paired \
       --per-gene \
       --gene-tag "XT" \
       --per-cell \
@@ -264,8 +240,8 @@ rule barcode_bam:
     bai = DATA + "{projects}/star/alignments/Aligned.sortedByCoord.out.bam.bai",
     bcs = _get_bcs
   output:
-    bam = temp(DATA + "{projects}/star/alignments/Aligned_bc.bam"),
-    bai = temp(DATA + "{projects}/star/alignments/Aligned_bc.bam.bai"),
+    bam = DATA + "{projects}/star/alignments/Aligned_bc.bam",
+    bai = DATA + "{projects}/star/alignments/Aligned_bc.bam.bai",
   params:
     idx = _get_seq_and_umi,
     job_name = "{projects.tagbc}",
@@ -349,7 +325,6 @@ rule fastqc:
               "{ids}_R2_001_fastqc.zip")
   params:
     out_dir = path.join(DATA, "{projects}", "fastq", "original", "fastqc"),
-    job_name = '{projects}.fastqc',
     memory =  "select[mem>80] rusage[mem=80] "
   log:
     path.join(DATA, "{projects}", "fastq", "original", "fastqc", "logs")

@@ -7,9 +7,6 @@ PROJECTS:
   - 'lna_cell/pbmc_expt/kirkpatrick'
   - 'lna_cell/pbmc_expt/mkcell_pulldown'
   - 'lna_gene/mk_gene_pulldown'
-  - 'lna_gene/jurkat_gene_pulldown_dna'
-  - 'lna_gene/jurkat_gene_pulldown_lna'
-  - 'lna_gene/jurkat_original'
 
 GENOME_FA:
   "/beevol/home/riemondy/Projects/shared_dbases/genomes/GRCh38.primary_assembly.genome.fa"
@@ -24,25 +21,14 @@ IDS:
   kirkpatrick: "C2_S1_L002"
   mk_gene_pulldown: "2_Dipaola_Kirkpatrick_C2_S1_L002"
   mkcell_pulldown: "2_Dipaola_Kirkpatrick_C2_S1_L001"
-  jurkat_gene_pulldown_dna: "JH112_S58_L001"
-  jurkat_gene_pulldown_lna: "Jh111_S13_L001"
-  jurkat_original: 'JurkatExp_S1_L001'
 
 LIB_MAP:
   kirkpatrick: "LNA"
   mk_gene_pulldown: "LNA"
   mkcell_pulldown: "LNA"
-  jurkat_gene_pulldown_dna: "PBMC"
-  jurkat_gene_pulldown_lna: "PBMC"
-  jurkat_original: "PBMC"
 
 LNA:
   bcs: "/beevol/home/riemondy/Projects/subsampled_scRNA/data/lna_cell/pbmc_expt/kirkpatrick/fastq/original/barcodes_from_10x_run.txt"
   seq_extract: " 1 16 17 26 "  
-  strand_params: " -s 1 "
-
-PBMC:
-  bcs: "/beevol/home/riemondy/Projects/subsampled_scRNA/data/lna_gene/jurkat_gene_pulldown_dna/fastq/original/barcodes.tsv"
-  seq_extract: " 1 16 17 26 "  
-  strand_params: " -s 2 "
+  fc_params: " -s 1 "
 

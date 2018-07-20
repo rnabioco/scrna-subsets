@@ -1,0 +1,65 @@
+---
+title: "tcr resampling"
+author: "Kent Riemondy RBI"
+date: "7/18/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(rjson)
+library(tidyverse)
+```
+
+
+```{r}
+
+jd <- paste(readLines("/Users/kriemo/Projects/10x_data/tcr/results/2018-05-18_jurkat_raji/VDJ_Tcell/outs/consensus_annotations.json"), collapse = "")
+dat <- fromJSON(jd)
+
+annots <- map(dat, ~.x[c("contig_name", "start_codon_pos")]) %>% 
+  bind_rows(.)
+
+contig_annots <- map(dat, ~.x$annotations) %>% 
+  map(., ~bind_rows(unlist(.))) %>% 
+  bind_rows(.)
+
+annots <- bind_cols(annots, contig_annots)
+```
+
+```{r}
+dat <- fromJSON(paste(readLines("/Users/kriemo/Projects/10x_data/tcr/results/2018-05-18_jurkat_raji/VDJ_Tcell/outs/all_contig_annotations.json"), collapse = ""))
+
+
+```
+
+
+```{r}
+b_10x <- read_csv("~/Projects/10x_data/tcr/results/2018-06-28_pbmc/vdj_v1_pbmc_b_all_contig_annotations.csv")
+t_10x <- read_csv("~/Projects/10x_data/tcr/results/2018-06-28_pbmc/vdj_v1_pbmc_t_all_contig_annotations.csv")
+unsort_b <- read_csv("~/Projects/10x_data/tcr/results/2018-06-28_pbmc/VDJ_denovo_Hesselberth_Unsorted_Bcell_05312018/outs/all_contig_annotations.csv")
+unsort_t <- read_csv("~/Projects/10x_data/tcr/results/2018-06-28_pbmc/VDJ_denovo_Hesselberth_Unsorted_Tcell_05312018/outs/all_contig_annotations.csv")
+sort_b <-read_csv("~/Projects/10x_data/tcr/results/2018-06-28_pbmc/VDJ_denovo_Hesselberth_CD_3_4_Bcell_05312018//outs/all_contig_annotations.csv")
+sort_t <-read_csv("~/Projects/10x_data/tcr/results/2018-06-28_pbmc/VDJ_denovo_Hesselberth_CD_3_4_Tcell_05312018//outs/all_contig_annotations.csv")
+
+dfs <- list(
+  bcells_10x = b_10x,
+  tcells_10x = t_10x,
+  bcells_unsorted = unsort_b,
+  tcells_unsorted = unsort_t,
+  bcells_sorted = sort_b,
+  tcells_sorted = sort_t
+)
+df <- bind_rows(dfs, .id = "library")
+
+df %>% 
+  filter(high_confidence == "True",
+         is_cell == "True") %>% 
+  ggplot(., aes(library, length)) +
+  geom_jitter() +
+  geom_violin()
+```
+```

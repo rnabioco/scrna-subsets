@@ -40,7 +40,7 @@ source("../../R/globals.R")
 The top clonotype contained only the TCR-B chain, while the second clonotype contained by A and B chains. A good cell to resample would be a cell from the first clonotype that also has some reads supported the A chain (but not enough to assemble).
    
 ```{r}
-data_dir <- "~/Projects/cellar/tcr/results/2018-05-18_jurkat_raji/"
+data_dir <- "~/Projects/10x_data/tcr/results/2018-05-18_jurkat_raji/"
 dat <- read_csv(file.path(data_dir, 
                           "VDJ_Tcell", 
                           "outs", "all_contig_annotations.csv"))

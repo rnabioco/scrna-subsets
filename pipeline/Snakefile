@@ -171,7 +171,7 @@ rule count_umis:
       -L {output.summary}
     """
 
-def _get_strand(wildcards):
+def _get_fc_settings(wildcards):
   """ lookup global dictionary lib_map via sample
       wildcard and return settings for strand
   """
@@ -179,9 +179,9 @@ def _get_strand(wildcards):
   id = os.path.basename(wildcards.projects)
   if id in lib_map:
      lib_attrs = lib_map[id]
-     strand_settings = config[lib_attrs]["strand_params"]
+     strand_settings = config[lib_attrs]["fc_params"]
   else:
-     print("warning: no strand settings found for library: {}".format(id),
+     print("warning: no fc settings found for library: {}".format(id),
        file = sys.stderr)
      strand_settings = ""
 
@@ -200,7 +200,7 @@ rule featurecount_bam:
     bai = DATA + "{projects}/star/alignments/Aligned_bc_exons.bam.bai",
     fc_summary = DATA + "{projects}/featurecounts/assigned_genes.txt"
   params:
-    strand = _get_strand,
+    settings = _get_fc_settings,
     prefix = DATA + "{projects}/featurecounts/assigned_genes.txt",
     bam = DATA + "{projects}/featurecounts/Aligned_bc.bam.featureCounts.bam",
     job_name = "{projects}.tagexons",
@@ -216,7 +216,7 @@ rule featurecount_bam:
       -R BAM  \
       -T {threads} \
       -o {params.prefix} \
-       {params.strand}  \
+       {params.settings}  \
       -g "gene_name" \
       {input.bam}
 

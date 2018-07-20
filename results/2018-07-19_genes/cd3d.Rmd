@@ -1,0 +1,269 @@
+---
+title: "cd3d pulldown"
+author: "Kent Riemondy RBI"
+date: '`R Sys.Date()`'
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: false
+    theme: cosmo
+    highlight: tango
+    fig_caption: true
+    code_folding: hide
+    df_print: paged
+---
+
+## Examine Lna pulldown data
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+```
+
+```{r, message=F, warning=F, echo=F}
+source("../../R/globals.R")
+color_palette <- c("#bdbdbd", "#E41A1C")
+data_dir <- file.path(data_dir, "lna_gene")
+```
+
+## Organize single cell libraries
+
+First designate the libraries and the cells that were resampled. 
+
+```{r cell_ids}
+genes <- c("CD3D")
+
+libs <- c(
+  "jurkat_gene_pulldown_lna",
+  "jurkat_gene_pulldown_dna",
+  "jurkat_original")
+
+bc_metadat <- read_tsv(file.path(data_dir, 
+                         "jurkat_gene_pulldown_dna", 
+                         "fastq",
+                         "original", 
+                         "barcodes.tsv"),
+                         col_names = c("barcode_10x", "cell_id"))
+
+## original library to compare against
+reflib <- "jurkat_original"
+resampled_libs <- c("jurkat_gene_pulldown_lna", "jurkat_gene_pulldown_dna")
+
+## reference resampled lib for resampled vs control plots
+resampled_lib <- "jurkat_gene_pulldown_dna"
+
+pretty_names_resampled_libs <- c("LNA pulldown", "DNA pulldown")
+names(pretty_names_resampled_libs) <- resampled_libs
+```
+
+Load and organize a table for each library of read counts per cell per gene, and a table of umi counts per cell per gene. 
+
+```{r read_counts}
+## read in umigroups flat file with read counts per umi per gene per cell
+## expand out to a read count matrix
+umipaths <- file.path(data_dir, 
+                      libs, 
+                      "umis",
+                      "umigroups.txt.gz")
+read_dat <- map(umipaths, 
+                ~umis_to_genes(.))
+names(read_dat) <- libs
+
+## read in umi_tools count table with umi counts per gene per cell
+umi_dat <- map(libs, 
+                ~read_tsv(file.path(data_dir, 
+                          .x,
+                          "dgematrix",
+                          "dge_matrix.txt")) %>% 
+                 select(-matches("Cell_unmatched")))
+names(umi_dat) <- libs
+
+# add in cell info, including info for the original sample
+cell_obj_mdata <- map(1:3, ~bc_metadat)
+names(cell_obj_mdata) <- libs
+```
+
+
+```{r s3ify}
+#' simple class to hold info for each experiment
+create_sc_obj <- function(umi_df,
+                          read_df,
+                          cell_mdata_df){
+  x <- list()
+  class(x) <- "resampled-set"
+  x$umis <- umi_df
+  x$reads <- read_df
+  x$meta_data <- cell_mdata_df
+  return(x)
+}
+
+sc_objs <- list(umi_dat, read_dat, cell_obj_mdata)
+sc_objs <- pmap(sc_objs, create_sc_obj)
+
+rm(umi_dat)
+rm(read_dat)
+
+names(sc_objs) <- libs
+  
+sc_objs <- map(sc_objs, generate_matrices)
+sc_objs <- map(sc_objs, norm_libsize)
+sc_objs <- map(sc_objs, compute_summaries)
+```
+
+## tSNE analysis
+
+```{r resampled_tsne, results = 'hide'}
+library(Seurat)
+
+mat <- sc_objs[[reflib]]$umi_matrix
+
+resampled_mat <- imap(sc_objs[resampled_libs],
+                      function(x, y) {
+                        resampled_mat <- x$umi_matrix[genes, , drop = F]
+                        rownames(resampled_mat) <- str_c(rownames(resampled_mat), 
+                                                          "_", 
+                                                          "resampled", 
+                                                          "_",
+                                                          y)
+                        resampled_mat}) %>% 
+  do.call(rbind, .)
+
+refcols <- colnames(mat)
+combined_mats <- rbind(mat, resampled_mat[, refcols, drop = F]) %>% 
+  as.matrix() %>% 
+  as(., "sparseMatrix")   
+
+sobj <- CreateSeuratObject(combined_mats)
+sobj <- NormalizeData(sobj)
+sobj <- ScaleData(sobj)
+sobj <- FindVariableGenes(sobj, do.plot = F)
+sobj <- RunPCA(sobj, pc.genes = sobj@var.genes, pcs.compute = 20, do.print = F)
+sobj <- RunTSNE(sobj, dims.use = 1:18, seed.use = 20180516)
+
+```
+
+
+```{r resampled_plots}
+new_ids <- c(genes, paste0(genes, "_resampled_", resampled_libs))
+names(new_ids) <- rep("CD3D", 3)
+titles <- c("Original",
+            "LNA pulldown",
+            "DNA pulldown")
+
+max_cd3_expr <- max(sobj@data[new_ids, ])
+plts <- pmap(list(
+  new_ids,
+  names(new_ids),
+  titles),
+  function(x, y, z){
+    plot_feature(sobj, 
+                 gene = x,
+                 legend_name = y,
+                 pt.alpha = 1,
+                 pt.size = 0.1,
+                 max_y = c(0, max_cd3_expr)) +
+      labs(title = z)})
+
+plt <- plot_grid(plotlist = plts, nrow = 1)
+plt
+
+save_plot("resampled_genes.pdf", plt, nrow = 1, ncol = 3,
+          base_height = 4.25, base_aspect_ratio = 1.2)
+
+VlnPlot(sobj, new_ids)
+```
+
+## Average Gene Abundance
+
+```{r avg_gene_abs}
+
+#' normalize by library size (Reads per Million) and log2 + 1
+norm_libsize <- function(sc_obj){
+  norm_umi <- 1e6 * sweep(sc_obj$umi_matrix, 2, 
+                                 sum(as.vector(sc_obj$umi_matrix)), "/")
+  norm_reads <- 1e6 * sweep(sc_obj$read_matrix, 2, 
+                                   sum(as.vector(sc_obj$read_matrix)), "/")
+  sc_obj$log_norm_umi <- log2(norm_umi + 1)
+  sc_obj$log_norm_reads <- log2(norm_reads + 1)
+  sc_obj
+}
+
+sc_objs <- map(sc_objs, norm_libsize)
+
+avg_expr <- map(sc_objs, ~log2(rowMeans(2^.x$log_norm_umi)))
+avg_expr <- map(avg_expr, ~data_frame(gene = names(.x),
+                                     expr = unname(.x)))
+avg_expr_df <- bind_rows(avg_expr, .id = "library")
+
+avg_expr_df <- avg_expr_df %>% 
+  spread(library, expr)
+
+avg_expr_df <- avg_expr_df %>% 
+  na.omit() %>% 
+  gather(library, expr, -gene, -reflib)
+
+avg_expr_df$fc <- log2(avg_expr_df$expr / avg_expr_df[[reflib]])
+avg_expr_df$resampled = ifelse(avg_expr_df$gene %in% genes,
+                              T,
+                              F)
+avg_expr_df <-arrange(avg_expr_df, resampled)
+
+resampled_info <- filter(avg_expr_df, resampled)
+
+library(ggrepel)
+
+plt <- ggplot(avg_expr_df, aes_string(reflib, "fc")) +
+  geom_point(aes(color = resampled), size = 0.25) +
+  scale_color_manual(values = color_palette) +
+  facet_grid(~library, labeller = as_labeller(pretty_names_resampled_libs)) +
+  geom_text_repel(data = resampled_info,
+                  aes(label = gene), 
+                  arrow = arrow(length = unit(0.02, "npc"))) +
+  labs(x = "Abundance in original library UMIs (log2)",
+       y = expression(paste( " Log"[2], " ", frac("resampled", "original")))) +
+  theme(legend.position = "none")
+  
+plt
+save_plot("ma_plots_umis.pdf", plt, base_aspect_ratio = 2)
+```
+
+```{r reads}
+
+avg_expr <- map(sc_objs, ~log2(rowMeans(2^.x$log_norm_reads)))
+avg_expr <- map(avg_expr, ~data_frame(gene = names(.x),
+                                     expr = unname(.x)))
+avg_expr_df <- bind_rows(avg_expr, .id = "library")
+
+avg_expr_df <- avg_expr_df %>% 
+  spread(library, expr)
+
+avg_expr_df <- avg_expr_df %>% 
+  na.omit() %>% 
+  gather(library, expr, -gene, -reflib)
+
+avg_expr_df$fc <- log2(avg_expr_df$expr / avg_expr_df[[reflib]])
+avg_expr_df$resampled = ifelse(avg_expr_df$gene %in% genes,
+                              T,
+                              F)
+avg_expr_df <-arrange(avg_expr_df, resampled)
+
+
+resampled_info <- filter(avg_expr_df, resampled)
+
+plt <- ggplot(avg_expr_df, aes_string(reflib, "fc")) +
+  geom_point(aes(color = resampled), size = 0.25) +
+  scale_color_manual(values = color_palette) +
+  facet_grid(~library, labeller = as_labeller(pretty_names_resampled_libs)) +
+  geom_text_repel(data = resampled_info,
+                  aes(label = gene), 
+                  arrow = arrow(length = unit(0.02, "npc"))) +
+  labs(x = "Abundance in original library reads (log2)",
+       y = expression(paste( " Log"[2], " ", frac("resampled", "original")))) 
+  
+plt
+save_plot("ma_plots_reads.pdf", plt, base_width = 8)
+```
+
+

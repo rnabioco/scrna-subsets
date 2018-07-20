@@ -33,3 +33,27 @@ snakemake --drmaa "$args" \
     --latency-wait 50 \
     --rerun-incomplete  \
     --configfile config_human_5p.yaml 
+
+snakemake --drmaa "$args" \
+    --snakefile Snakefile \
+    --jobs 36 \
+    --resources all_threads=36 \
+    --latency-wait 50 \
+    --rerun-incomplete  \
+    --configfile config_human.yaml 
+
+snakemake --drmaa "$args" \
+    --snakefile Snakefile \
+    --jobs 36 \
+    --resources all_threads=36 \
+    --latency-wait 50 \
+    --rerun-incomplete  \
+    --configfile config_mouse_human.yaml 
+
+snakemake --drmaa "$args" \
+    --snakefile tcr.snake \
+    --jobs 36 \
+    --resources all_threads=36 \
+    --latency-wait 50 \
+    --rerun-incomplete  \
+    --configfile config_tcr.yaml 

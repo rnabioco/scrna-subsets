@@ -31,5 +31,5 @@ LIB_MAP:
 PBMC:
   bcs: "/beevol/home/riemondy/Projects/subsampled_scRNA/data/lna_gene/jurkat_gene_pulldown_dna/fastq/original/barcodes.tsv"
   seq_extract: " 1 16 17 26 '_' "  
-  fc_params: " -s 2 "
+  fc_params: " -p -s 1 "
 
