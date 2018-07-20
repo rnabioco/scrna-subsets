@@ -39,6 +39,7 @@ class Molecule {
 public:
   std::string cn, bo, xt, umikey ;
   int64_t ug ; 
+  bool has_tags ; 
   Molecule(bam1_t*) ;
 };
 
@@ -47,6 +48,7 @@ class PosMolecule {
 public:
   int32_t pos ;
   std::string chrom, cn, bo, xt, umikey ;
+  bool has_tags ; 
   PosMolecule(bam1_t*, bam_hdr_t*);
 };
 

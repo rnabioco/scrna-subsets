@@ -45,17 +45,17 @@ void get_molecules(std::string filename){
   bam_hdr_t *h = sam_hdr_read(bfile.in) ; // get header
   bam1_t *aln = bam_init1() ;
   
-  // get first alignment and set cell group
-  int l = bam_read1(bfile.bz, aln) ;
+
   std::string current_cell;
-  if (l > 0){
-    PosMolecule molecule(aln, h) ;
-    current_cell = molecule.cn ;
-    posmap[molecule.umikey].insert(molecule.pos); 
-  }  
-  
   while (bam_read1(bfile.bz, aln) > 0){
     PosMolecule molecule(aln, h) ;
+    if (!molecule.has_tags) {
+      continue ;
+    }
+    if (current_cell.empty()){
+      current_cell = molecule.cn ;
+    }
+    
     if(molecule.cn == current_cell){
       posmap[molecule.umikey].insert(molecule.pos); 
     } else {
