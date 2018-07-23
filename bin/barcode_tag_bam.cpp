@@ -54,34 +54,14 @@ int hamming_distance(const std::string& fs, const std::string& ss){
 
 int main(int argc, char *argv[])
 {
-  if (argc == 1) {
-    std::cerr << "Usage: <in.bam> <in.bcs> <out.bam> <cbc_start> <cbc_end> <umi_start> <umi_end> <delim> \n" << argv[0] ;
+  if (argc < 7) {
+    std::cerr << "Usage: <in.bam> <in.bcs> <out.bam> <delim> <cbc_field> <umi_field> \n" << argv[0] ;
     return 1;
-  } else if  (argc < 8) {
-    std::cerr << "input and output file names required" << std::endl ;
-    return 1;
-  }
+  } 
   
-  int cbc_start, cbc_end, umi_start, umi_end ;
-  char delim ;
-  
-  if (argc == 9){
-    delim = argv[8][0] ; 
-  } else {
-    delim = ':' ;
-  }
-
-  cbc_start = std::stoi(argv[4]) ; 
-  cbc_end   = std::stoi(argv[5]) ;
-  umi_start = std::stoi(argv[6]) ;
-  umi_end   = std::stoi(argv[7]) ;
-  
-  
-  int cbc_start_idx = cbc_start - 1 ;
-  int umi_start_idx = umi_start - 1 ;
-  
-  int cbc_len = cbc_end - cbc_start_idx ;
-  int umi_len = umi_end - umi_start_idx ; 
+  int cbc_field = std::stoi(argv[5]) - 1;
+  int umi_field = std::stoi(argv[6]) - 1;
+  char delim = argv[4][0] ;
   
   //generate map of cell bcs and cell names
   std::string bcs = argv[2] ;
@@ -94,9 +74,6 @@ int main(int argc, char *argv[])
   bam1_t *aln = bam_init1() ; // initialize empty alignment container
   samFile *fp_out = sam_open(fn_out, "wb") ; //initialize output bam
   
-  // track seen barcodes and write to stdout
-  std::map<std::string, int> seen_bcs ;
-
   sam_hdr_write(fp_out, header) ;
   while (bam_read1(bfile.bz, aln) > 0) { // negative return values are errors
 
@@ -104,12 +81,8 @@ int main(int argc, char *argv[])
 
     std::vector<std::string> id_elements ;
     splitName(id, delim, id_elements) ; //split up name field
-    auto read_seq = id_elements.back() ; //get seq
-    auto cbc = read_seq.substr(cbc_start_idx, cbc_len) ;
-    auto umi = read_seq.substr(umi_start_idx, umi_len) ;
-
-    // count seen barcode
-    seen_bcs[cbc] += 1 ; 
+    auto cbc = id_elements[cbc_field] ;
+    auto umi = id_elements[umi_field] ;
 
     //see if cell barcode is in map, if not take first one 1 hamming dist away
     // otherwise report unmatched
@@ -144,10 +117,6 @@ int main(int argc, char *argv[])
 
   }
   
-  for(auto const& it:seen_bcs) {
-    std::cout << it.first << "\t" << it.second << std::endl ; 
-  }
-
   bam_destroy1(aln) ;
   sam_close(fp_out) ;
 
