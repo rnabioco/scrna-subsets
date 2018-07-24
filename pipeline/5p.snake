@@ -201,22 +201,6 @@ rule featurecount_bam:
     rm -f {params.bam}
     """  
 
-def _get_seq_and_umi(wildcards):
-  """ lookup global dictionary lib_map via sample
-      wildcard and return settings for selecting
-      cell and umis from read name 
-  """
-  id = os.path.basename(wildcards.projects)
-  if id in lib_map:
-     lib_attrs = lib_map[id]
-     idx_settings = config[lib_attrs]["seq_extract"]
-  else:
-     print("warning: no index settings found for library: {}".format(id),
-       file = sys.stderr)
-     idx_settings = ""
-
-  return idx_settings
- 
 def _get_bcs(wildcards):
   """ lookup global dictionary lib_map via sample
       wildcard and return settings for selecting
@@ -243,18 +227,15 @@ rule barcode_bam:
     bam = DATA + "{projects}/star/alignments/Aligned_bc.bam",
     bai = DATA + "{projects}/star/alignments/Aligned_bc.bam.bai",
   params:
-    idx = _get_seq_and_umi,
-    job_name = "{projects.tagbc}",
+    job_name = "{projects}.tagbc",
     memory = "select[mem>80] rusage[mem=80]",
-    seen_bcs = DATA + "{projects}/star/logs/seen_barcodes.txt"
   log:
     DATA + "{projects}/star/logs/tag_bc.txt"
   resources: all_threads = 1
   shell:
     """
     {BIN}/barcode_tag_bam {input.bam} {input.bcs} \
-      {output.bam} {params.idx} \
-      > {params.seen_bcs}
+      {output.bam} "_" 2 3
     
     samtools index {output.bam}
     """
@@ -307,7 +288,7 @@ rule append_barcodes:
   shell:
     """
     umi_tools extract \
-      --bc-pattern=NNNNNNNNNNNNNNNNNNNNNNNNNN \
+      --bc-pattern=CCCCCCCCCCCCCCCCNNNNNNNNNN \
       --stdin {input.R1} \
       --stdout {output.R1} \
       --read2-in {input.R2} \

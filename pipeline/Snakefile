@@ -225,21 +225,6 @@ rule featurecount_bam:
     rm -f {params.bam}
     """  
 
-def _get_seq_and_umi(wildcards):
-  """ lookup global dictionary lib_map via sample
-      wildcard and return settings for selecting
-      cell and umis from read name 
-  """
-  id = os.path.basename(wildcards.projects)
-  if id in lib_map:
-     lib_attrs = lib_map[id]
-     idx_settings = config[lib_attrs]["seq_extract"]
-  else:
-     print("warning: no index settings found for library: {}".format(id),
-       file = sys.stderr)
-     idx_settings = ""
-
-  return idx_settings
  
 def _get_bcs(wildcards):
   """ lookup global dictionary lib_map via sample
@@ -267,18 +252,15 @@ rule barcode_bam:
     bam = temp(DATA + "{projects}/star/alignments/Aligned_bc.bam"),
     bai = temp(DATA + "{projects}/star/alignments/Aligned_bc.bam.bai"),
   params:
-    idx = _get_seq_and_umi,
-    job_name = "{projects.tagbc}",
+    job_name = "{projects}.tagbc",
     memory = "select[mem>80] rusage[mem=80]",
-    seen_bcs = DATA + "{projects}/star/logs/seen_barcodes.txt"
   log:
     DATA + "{projects}/star/logs/tag_bc.txt"
   resources: all_threads = 1
   shell:
     """
     {BIN}/barcode_tag_bam {input.bam} {input.bcs} \
-      {output.bam} {params.idx} \
-      > {params.seen_bcs}
+      {output.bam} "_" 2 3 
     
     samtools index {output.bam}
     """
@@ -308,9 +290,25 @@ rule star_align:
     samtools index {output.bam}
     """
 
+def _get_seq_and_umi(wildcards):
+  """ lookup global dictionary lib_map via sample
+      wildcard and return settings for selecting
+      cell and umis from read name 
+  """
+  id = os.path.basename(wildcards.projects)
+  if id in lib_map:
+     lib_attrs = lib_map[id]
+     idx_settings = config[lib_attrs]["seq_extract"]
+  else:
+     print("warning: no index settings found for library: {}".format(id),
+       file = sys.stderr)
+     idx_settings = ""
+
+  return idx_settings
+
 rule append_r1_seq_to_R2:
   """ move R1 sequence to R2 read name and
-      trim R1 sequence to 30 nucleotides
+      deliminate cell barcode and umi
 
       also trim poly(A) tails from R2 using cutadapt
   """
@@ -322,6 +320,8 @@ rule append_r1_seq_to_R2:
   output:
     temp(DATA + '{projects}/fastq/modified/R2_trimmed.fastq.gz')
   params:
+    idx = _get_seq_and_umi,
+    seen_bcs = DATA + "{projects}/fastq/logs/seen_barcodes.txt",
     job_name = "{projects}.renamefq",
     memory = "select[mem>8] rusage[mem=8] ",
   log:
@@ -330,15 +330,15 @@ rule append_r1_seq_to_R2:
   threads: 3
   shell:
     """
-    {BIN}/append_read_name {input.R1} {input.R2} 30 \
-      2> {log} \
+    {BIN}/append_read_name {input.R1} {input.R2} {params.idx} \
+      2> {params.seen_bcs} \
       | cutadapt \
         -a 'A{{100}}' \
         -O 6 \
         -m 20 \
         -q 10 \
         -o {output} - \
-        >> {log}
+        > {log}
     """
 
 rule fastqc:
