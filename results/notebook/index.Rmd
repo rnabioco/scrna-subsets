@@ -15,4 +15,5 @@ date: '`r Sys.Date()`'
 [Mouse and Human cell pulldown expt 2](../../2018-05-16_mouse_human/mouse_human_pulldown.html)   
 [Megakaryocyte cell pulldown](../../2018-05-15_pbmc/mkcell_pulldown.html)   
 [PBMC gene pulldown](../../2018-05-15_pbmc_genes/gene_pulldown.html)   
-[UMI recovery analysis](../../2018-05-21_new_old_umis)
+[UMI recovery analysis](../../2018-05-21_new_old_umis/umis.html)
+[BC offtarget](../../results/2018-07-24_barcode_off_target/bcs.html)

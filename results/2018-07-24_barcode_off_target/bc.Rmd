@@ -1,0 +1,198 @@
+---
+title: "Barcode enrichment"
+author: "Kent Riemondy RBI"
+date: '`r Sys.Date()`'
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: false
+    theme: cosmo
+    highlight: tango
+    fig_caption: true
+    code_folding: hide
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+```
+
+```{r, message=F, warning=F, echo=F}
+source("../../R/globals.R")
+
+library(kentr)
+library(ggrepel)
+```
+
+## 10x genomics control mouse/human cell pulldown
+```{r get_bcs}
+cells <- c("GACGTTAGTGCCTGTG","CTGATCCCATGACGGA")
+
+libs <- c(
+  "original_10x",
+  "mouse_human_cell_pulldown")
+
+reflib <- "original_10x"
+resampled_lib <- "mouse_human_cell_pulldown"
+
+lib_data_dir <- file.path(data_dir, 
+                          "lna_cell",
+                          "mh_mix")
+
+bc_metadat <- read_tsv(file.path(lib_data_dir, 
+                                 reflib, 
+                                 "fastq",
+                                 "original", 
+                                 "barcodes_from_10x_run.txt"),
+                       col_names = c("cell_id", "barcode_10x")) 
+
+plot_distances <- function(cells,
+                           libs,
+                           reflib,
+                           resampled_lib,
+                           lib_data_dir,
+                           bc_metadat) {
+  
+  bc_counts <- map(libs,
+                   ~read_tsv(file.path(lib_data_dir,
+                                       .x,
+                                       "fastq",
+                                       "logs", 
+                                       "seen_barcodes.txt"),
+                             col_names = c("barcode", "count"))) 
+  names(bc_counts) <- libs
+  bc_counts <- bind_rows(bc_counts, .id = "library")
+  bc_counts <- spread(bc_counts, library, count) 
+  bc_counts_norm <- mutate(bc_counts,
+                           norm_og_bcs =  UQ(sym(reflib)) /
+                             sum(UQ(sym(reflib)), na.rm = T),
+                           norm_rs_bcs = UQ(sym(resampled_lib)) /
+                             sum(UQ(sym(resampled_lib)), na.rm = T)) %>% 
+    na.omit()
+  
+  bc_counts_norm <- mutate(bc_counts_norm, 
+                           bc_enrichment = log2(norm_rs_bcs) - log2(norm_og_bcs))
+  
+  cellbc_norm <- semi_join(bc_counts_norm,
+                           bc_metadat, 
+                           by = c("barcode" = "barcode_10x"))
+  
+  sw_res <- map_dfr(cells, function(x){
+    res <- get_sw(x, unique(bc_counts$barcode))
+    res$probe <- x
+    res$barcode <- unique(bc_counts$barcode)
+    res
+  }) %>% 
+    tbl_df()
+  
+  h_res <-  map_dfr(cells, function(x){
+    res <- data_frame(hdist = get_hamming(x, unique(bc_counts$barcode)),
+                      probe = x,
+                      barcode = unique(bc_counts$barcode))
+    res
+  }) %>% 
+    tbl_df()
+  
+  cellbc_norm_dist <- left_join(cellbc_norm,
+                                sw_res, 
+                                by = "barcode")
+  
+  cellbc_norm_dist <-  left_join(cellbc_norm_dist,
+                                 h_res, 
+                                 by = c("barcode", "probe"))
+  
+  cellbc_norm_dist <- mutate(cellbc_norm_dist,
+                             resampling_probe = barcode %in% cells)
+  
+  ## set aside df for labeling cells with enrichment > 2 fold
+  
+  enriched_bcs <- cellbc_norm_dist %>% 
+    filter(bc_enrichment > 1)
+  
+  sw_plot <- ggplot(cellbc_norm_dist,
+                    aes(sw_score,
+                        bc_enrichment)) +
+    geom_point(aes(color = resampling_probe)) +
+    scale_color_manual(values = color_palette) + 
+    geom_text_repel(data = enriched_bcs,
+                    aes(label = barcode),
+                    force = 10, 
+                    arrow = arrow(length = unit(0.03, "npc"), 
+                                  type = "closed", ends = "first"),
+                    size = 2) +
+    labs(x = "Alignment Score",
+         y = expression(paste("Barcode enrichment log"[2]))) +
+    theme(legend.pos = "none")
+  
+  hdist_plot <- ggplot(cellbc_norm_dist,
+                       aes(hdist,
+                           bc_enrichment)) +
+    geom_point(aes(color = resampling_probe)) +
+    scale_color_manual(values = color_palette) + 
+    geom_text_repel(data = enriched_bcs,
+                    aes(label = barcode),
+                    force = 10, 
+                    arrow = arrow(length = unit(0.03, "npc"), 
+                                  type = "closed", ends = "first"),
+                    size = 2) +
+    labs(x = "Hamming Distance",
+         y = expression(paste("Barcode enrichment log"[2]))) +
+    theme(legend.pos = "none")
+  
+  plt <- plot_grid(sw_plot, hdist_plot, ncol = 1)
+  save_plot(str_c(resampled_lib,"_bc_dist.pdf"),
+            plt, 
+            nrow = 2, 
+            ncol = 1)
+  plt
+  
+}
+
+plot_distances(cells,
+               libs,
+               reflib,
+               resampled_lib,
+               lib_data_dir,
+               bc_metadat)
+```
+
+## PBMC Mk cell pulldown
+```{r}
+
+cells <- c("TGCGCAGCAGGTCGTC",
+           "ACTTGTTAGGACCACA",
+           "CCATTCGTCCCTGACT",
+           "TGTCCCAGTAAACACA")
+
+libs <- c(
+  "kirkpatrick",
+  "mkcell_pulldown")
+
+lib_data_dir <- file.path(data_dir, 
+                          "lna_cell",
+                          "pbmc_expt/")
+
+bc_metadat <- read_tsv(file.path(lib_data_dir, 
+                                 "kirkpatrick", 
+                                 "fastq",
+                                 "original", 
+                                 "barcodes_from_10x_run.txt"),
+                       col_names = c("cell_id", "barcode_10x"))
+
+## original library to compare against
+reflib <- "kirkpatrick"
+
+## reference resampled lib for resampled vs control plots
+resampled_lib <- "mkcell_pulldown"
+
+plot_distances(cells,
+               libs,
+               reflib,
+               resampled_lib,
+               lib_data_dir,
+               bc_metadat)
+```
+

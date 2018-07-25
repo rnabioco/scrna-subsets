@@ -20,7 +20,19 @@ figs_dir <-  file.path(results_dir, "Figures") %>%
       include.dirs = TRUE,
       full.names = T)
 
+##### colors #####
 
+# Hexcodes from colorblindr
+# palette from  http://jfly.iam.u-tokyo.ac.jp/color/.
+palette_okabeito <- c("#E69F00", 
+                      "#56B4E9", 
+                      "#009E73", 
+                      "#F0E442", 
+                      "#0072B2", 
+                      "#D55E00", 
+                      "#CC79A7", 
+                      "#999999")
+color_palette <- palette_okabeito[5:6]
 ##### Functions ####
 
 #' When writing out excel workbooks using openxlsx::write.xlsx()
