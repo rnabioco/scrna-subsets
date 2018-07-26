@@ -24,7 +24,6 @@ knitr::opts_chunk$set(message = FALSE)
 
 ```{r, message=F, warning=F, echo=F}
 source("../../R/globals.R")
-color_palette = c("#bdbdbd", "#1F78B4")
 ```
 
 ## Organize single cell libraries
@@ -71,7 +70,8 @@ cells <- list(
   )
 )
 
-bc_metadat <- read_tsv(file.path(data_dir, 
+lib_data_dir <- file.path(data_dir, "pcr")
+bc_metadat <- read_tsv(file.path(lib_data_dir, 
                        "original",
                        "fastq",
                        "original",
@@ -140,7 +140,7 @@ Load and organize a table for each library of read counts per cell per gene, and
 
 ## read in umigroups flat file with read counts per umi per gene per cell
 ## expand out to a read count matrix
-umipaths <- file.path(data_dir, 
+umipaths <- file.path(lib_data_dir, 
                       libs, 
                       "umis",
                       "umigroups.txt.gz")
@@ -150,7 +150,7 @@ names(read_dat) <- libs
 
 ## read in umi_tools count table with umi counts per gene per cell
 umi_dat <- map(libs, 
-                ~read_tsv(file.path(data_dir, 
+                ~read_tsv(file.path(lib_data_dir, 
                           .x,
                           "dgematrix",
                           "dge_matrix.txt")) %>% 
@@ -175,8 +175,8 @@ Next organize these tables into simple classes called `resampled-sets` to keep t
 sc_objs <- list(umi_dat, read_dat, cell_obj_mdata)
 sc_objs <- pmap(sc_objs, create_sc_obj)
 
-rm(umi_dat)
-rm(read_dat)
+#rm(umi_dat)
+#rm(read_dat)
 ```
 
 Next perform basic processing. 
@@ -187,7 +187,7 @@ Next perform basic processing.
 ```{r store_matrices}
 sc_objs <- map(sc_objs, generate_matrices)
 sc_objs <- map(sc_objs, norm_libsize)
-sc_objs <- map(sc_objs, compute_summaries)
+sc_objs <- map(sc_objs, compute_summaries, by_column = "cell_id")
 ```
 
 Compute enrichment of reads/umis over the original library. 
@@ -524,14 +524,14 @@ add_species_counts <- function(sc_obj,
   norm_human_umis <- colSums(sc_obj$norm_umi[human_ids, ])
   norm_mouse_umis <- colSums(sc_obj$norm_umi[mouse_ids, ])
   
-  sc_obj <- add_metadata(sc_obj, human_reads)
-  sc_obj <- add_metadata(sc_obj, mouse_reads)
-  sc_obj <- add_metadata(sc_obj, human_umis)
-  sc_obj <- add_metadata(sc_obj, mouse_umis)
-  sc_obj <- add_metadata(sc_obj, norm_human_reads)
-  sc_obj <- add_metadata(sc_obj, norm_mouse_reads)
-  sc_obj <- add_metadata(sc_obj, norm_human_umis)
-  sc_obj <- add_metadata(sc_obj, norm_mouse_umis)
+  sc_obj <- add_metadata(sc_obj, human_reads, by_col = "cell_id")
+  sc_obj <- add_metadata(sc_obj, mouse_reads, by_col = "cell_id")
+  sc_obj <- add_metadata(sc_obj, human_umis, by_col = "cell_id")
+  sc_obj <- add_metadata(sc_obj, mouse_umis, by_col = "cell_id")
+  sc_obj <- add_metadata(sc_obj, norm_human_reads, by_col = "cell_id")
+  sc_obj <- add_metadata(sc_obj, norm_mouse_reads, by_col = "cell_id")
+  sc_obj <- add_metadata(sc_obj, norm_human_umis, by_col = "cell_id")
+  sc_obj <- add_metadata(sc_obj, norm_mouse_umis, by_col = "cell_id")
   
   ## make sure mouse + human == total
   stopifnot(all(sc_obj$meta_dat$total_reads == sc_obj$meta_dat$mouse_reads + 
@@ -673,7 +673,7 @@ detected_molecules <- function(sc_obj, molecule = "gene"){
     out_mdat <- data_frame(cell_id = colnames(umis),
       n_human_genes = n_human_genes,
       n_mouse_genes = n_mouse_genes)
-    sc_obj <- add_metadata(sc_obj, out_mdat)
+    sc_obj <- add_metadata(sc_obj, out_mdat, by_col = "cell_id")
     }
   
 }
@@ -824,7 +824,7 @@ sc_objs <- map(sc_objs,
                                      by = "cell_id") %>% 
                left_join(., new_genes, by = "cell_id")
              
-             x <- add_metadata(x, gene_mdata)
+             x <- add_metadata(x, gene_mdata, by_col = "cell_id")
              x
            })
 
@@ -1264,56 +1264,17 @@ save_plot("expression_newgenes_violinplots.pdf", new_gene_plt,
 ## Parse out new verses old UMIs
 ```{r read_umi_seqs}
 
-compare_umis <- function(path_to_ctrl,
-                         path_to_test,
-                         return_summary = F){
 
-  ## umi seqs should be produced by ./get_molecule_info
-  ctrl_umi_seqs <- read_tsv(path_to_ctrl,
-                   col_names = c("barcode_10x", 
-                                 "umi_molecule", 
-                                 "count")) %>% 
-  filter(barcode_10x != "Cell_unmatched")
-
-  test_umi_seqs <- read_tsv(path_to_test,
-                   col_names = c("barcode_10x", 
-                                 "umi_molecule", 
-                                 "count")) %>% 
-  filter(barcode_10x != "Cell_unmatched")
-
-
-  umi_seqs <- full_join(ctrl_umi_seqs, 
-          test_umi_seqs, 
-          by = c("barcode_10x", "umi_molecule"))
-  
-  if (return_summary) {
-    umi_seqs %>% 
-      mutate(new_umi = ifelse(is.na(count.x) & !is.na(count.y), 
-                          1L, 
-                          0L),
-         not_detected_umi = ifelse(!is.na(count.x) & is.na(count.y),
-                                   1L,
-                                   0L),
-         shared_umi = ifelse(!is.na(count.x) & !is.na(count.y),
-                             1L,
-                             0L)) %>% 
-      group_by(barcode_10x) %>% 
-      summarize(new_umis = sum(new_umi),
-            not_detected_umis = sum(not_detected_umi),
-            shared_umis = sum(shared_umi))
-  } else {
-    umi_seqs
-  }
-}
-
-umi_files <- file.path(data_dir, libs, "umis", "umigroups.txt.gz")
+umi_files <- file.path(lib_data_dir, libs, "umis", "umigroups.txt.gz")
 
 umi_summaries <- map(umi_files[2:4],
-                   ~compare_umis(umi_files[1], .x, return_summary = T))
+                   ~compare_umis(umi_files[1], .x, 
+                                 return_summary = T, 
+                                 strip_10x_suffix = F))
 
 names(umi_summaries) <- umi_files[2:4] %>% 
   str_split(., "/") %>% 
-  map_chr(~.x[7])
+  map_chr(~.x[8])
 
 umi_summary <- bind_rows(umi_summaries, .id = "library")
 
@@ -1354,11 +1315,13 @@ plt
 ```{r}
 
 umi_seqs <- map(umi_files[2:4],
-                ~compare_umis(umi_files[1], .x, return_summary = F))
+                ~compare_umis(umi_files[1], .x,
+                              return_summary = F, 
+                              strip_10x_suffix = F))
 
 names(umi_seqs) <- umi_files[2:4] %>% 
   str_split(., "/") %>% 
-  map_chr(~.x[7])
+  map_chr(~.x[8])
 
 new_umis <- map2(umi_seqs, 
                 split(cell_annot, cell_annot$library)[libs],

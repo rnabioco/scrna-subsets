@@ -282,7 +282,7 @@ add_metadata <- function(sc_obj, dat, by_col = "barcode_10x"){
   sc_obj
 }
 
-compute_summaries <- function(sc_obj){
+compute_summaries <- function(sc_obj, by_column = "barcode_10x"){
   ## raw counts
   total_umis <- colSums(sc_obj$umi_matrix)
   names(total_umis) <- colnames(sc_obj$umi_matrix)
@@ -295,10 +295,10 @@ compute_summaries <- function(sc_obj){
   norm_total_reads <- colSums(sc_obj$norm_reads)
   names(norm_total_reads) <- colnames(sc_obj$norm_reads)
   
-  sc_obj <- add_metadata(sc_obj, total_umis)
-  sc_obj <- add_metadata(sc_obj, total_reads)
-  sc_obj <- add_metadata(sc_obj, norm_total_umis)
-  sc_obj <- add_metadata(sc_obj, norm_total_reads)
+  sc_obj <- add_metadata(sc_obj, total_umis, by_col = by_column)
+  sc_obj <- add_metadata(sc_obj, total_reads, by_col = by_column)
+  sc_obj <- add_metadata(sc_obj, norm_total_umis, by_col = by_column)
+  sc_obj <- add_metadata(sc_obj, norm_total_reads, by_col = by_column)
   
   ## compute cDNA duplication rate 
   sc_obj$meta_dat$cDNA_duplication <- 1 - (sc_obj$meta_dat$total_umis /
