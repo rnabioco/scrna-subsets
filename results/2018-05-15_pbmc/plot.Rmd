@@ -1,5 +1,5 @@
 ---
-title: "Pbmc megakaryocte cell pulldown"
+title: "plots for megakaryocyte pulldown"
 author: "Kent Riemondy RBI"
 date: '`R Sys.Date()`'
 output:
@@ -37,7 +37,7 @@ knitr::opts_chunk$set(message = FALSE)
 
 ```{r, message=F, warning=F, echo=F}
 source("../../R/globals.R")
-color_palette = c("#bdbdbd", "#1F78B4")
+library(Seurat)
 ```
 
 ## Organize single cell data
@@ -55,7 +55,12 @@ libs <- c(
   "kirkpatrick",
   "mkcell_pulldown")
 
-bc_metadat <- read_tsv(file.path(data_dir, 
+
+lib_data_dir <- file.path(data_dir, 
+                          "lna_cell",
+                          "pbmc_expt")
+
+bc_metadat <- read_tsv(file.path(lib_data_dir, 
                          "kirkpatrick", 
                          "fastq",
                          "original", 
@@ -77,106 +82,25 @@ lib_names = c(
 
 ## pretty names for cells
 cell_names = c(
-  "TGCGCAGCAGGTCGTC-1" = "MK-cell-1",
-  "ACTTGTTAGGACCACA-1" = "MK-cell-2",
-  "CCATTCGTCCCTGACT-1" = "MK-cell-3",
-  "TGTCCCAGTAAACACA-1" = "MK-cell-4")
+  "TGCGCAGCAGGTCGTC" = "MK-cell-1",
+  "ACTTGTTAGGACCACA" = "MK-cell-2",
+  "CCATTCGTCCCTGACT" = "MK-cell-3",
+  "TGTCCCAGTAAACACA" = "MK-cell-4")
 
+sc_objs <- readRDS("processed_data.rds")
+
+sc_metadat <- map(sc_objs, ~.x$meta_dat) %>% 
+  bind_rows(.id = "library") %>% 
+  mutate(library = factor(library, levels = libs)) %>% 
+  arrange(resampled)
+
+resampled_metadat <- filter(sc_metadat,
+                             library != reflib) %>% 
+  mutate(library = factor(library, 
+                          levels = resampled_libs))
 ```
 
 Load and organize a table for each library of read counts per cell per gene, and a table of umi counts per cell per gene. 
-
-```{r read_counts}
-
-## read in umigroups flat file with read counts per umi per gene per cell
-## expand out to a read count matrix
-umipaths <- file.path(data_dir, 
-                      libs, 
-                      "umis",
-                      "umigroups.txt.gz")
-read_dat <- map(umipaths, 
-                ~umis_to_genes(.))
-names(read_dat) <- libs
-
-## read in umi_tools count table with umi counts per gene per cell
-umi_dat <- map(libs, 
-                ~read_tsv(file.path(data_dir, 
-                          .x,
-                          "dgematrix",
-                          "dge_matrix.txt")) %>% 
-                 select(-Cell_unmatched))
-names(umi_dat) <- libs
-
-cell_obj_mdata <- map(cells, 
-                      ~mutate(bc_metadat, 
-                              resampled = ifelse(barcode_10x %in% .x,
-                                                  TRUE,
-                                                  FALSE)))
-
-```
-
-Next organize these tables into simple classes called `resampled-sets` to keep track of each experiment's relavant raw, processed, and meta data. 
-
-```{r s3ify}
-
-sc_objs <- list(umi_dat, read_dat, cell_obj_mdata)
-sc_objs <- pmap(sc_objs, create_sc_obj)
-
-rm(umi_dat)
-rm(read_dat)
-```
-
-Next perform basic processing. 
-  1) generate separate objects to store sparse matrices of umi and read counts. 
-  2) normalize read and umi count data by total library size (sum of all read or umi counts for all cells in the experiment) and report as Reads per million or UMIs per million. 
-  3) Compute per cell metrics (read and umi counts, sequencing saturation)
-
-```{r store_matrices}
-sc_objs <- map(sc_objs, generate_matrices)
-sc_objs <- map(sc_objs, norm_libsize)
-sc_objs <- map(sc_objs, compute_summaries)
-```
-
-Compute enrichment of reads/umis over the original library. 
-
-```{r calc_enrichment}
-
-sc_objs <- map(sc_objs,
-    function(sub_dat){
-      og_counts <- select(sc_objs[[reflib]]$meta_dat,
-                          og_total_reads = total_reads,
-                          og_total_umis = total_umis,
-                          og_norm_total_umis = norm_total_umis,
-                          og_norm_total_reads = norm_total_reads,
-                          og_cDNA_duplication = cDNA_duplication,
-                          cell_id)
-      sub_dat$meta_dat <- left_join(sub_dat$meta_dat,
-                         og_counts, 
-                         by = "cell_id")
-      
-      sub_dat$meta_dat <- mutate(sub_dat$meta_dat,
-                                 read_proportion = log2( total_reads / og_total_reads),
-                                 umi_proportion = log2( total_umis / og_total_umis),
-                                 norm_read_proportion = log2( norm_total_reads /
-                                                                og_norm_total_reads),
-                                 norm_umi_proportion = log2( norm_total_umis /
-                                                               og_norm_total_umis))
-      sub_dat
-    })
-
-```
-
-Next write out matrices to disk, for eventual GEO deposit
-
-```{r}
-dir.create("count_matrices", showWarnings = F)
-iwalk(sc_objs, 
-     function(x, y) {
-       out_fn <- file.path("count_matrices", paste0(y, "_umis.tsv"))
-       write_tsv(x$umis, out_fn)
-       R.utils::gzip(out_fn, overwrite = TRUE)
-     })
-```
 
 ## cDNA duplication rate
 
@@ -474,38 +398,19 @@ dat_group %>%
 
 ## Genes detected
 
-```{r genes}
-
-## compute per gene or per gene/umi combo enrichment
-detected_molecules <- function(sc_obj, molecule = "gene"){
-  umis <- sc_obj$umi_matrix
-  if (molecule == "gene"){
-    n_genes <- colSums(umis > 0)
-    out_mdat <- data_frame(cell_id = colnames(umis),
-      n_genes = n_genes)
-    sc_obj <- add_metadata(sc_obj, out_mdat)
-    }
-}
-sc_objs <- map(sc_objs, ~detected_molecules(.x))
-```
-
 ```{r gene_plot}
-resampled_metadat <- map(sc_objs, ~.x$meta_dat) %>% 
-  bind_rows(.id = "library") %>% 
-   mutate(library = factor(library, 
-                           levels = libs))
 
-og_genes <- filter(resampled_metadat, 
+og_genes <- filter(sc_metadat, 
                    library == reflib) %>% 
-  dplyr::select(cell_id, 
+  dplyr::select(barcode_10x, 
                 og_genes = n_genes)
 
-resampled_metadat <- left_join(resampled_metadat, 
+resampled_metadat_mod <- left_join(resampled_metadat, 
                                 og_genes,
-                                by = "cell_id") %>% 
+                                by = "barcode_10x") %>% 
   filter(library != reflib)
 
-plt <- ggplot(resampled_metadat, aes(og_genes, 
+plt <- ggplot(resampled_metadat_mod, aes(og_genes, 
                                n_genes, colour = resampled)) + 
   geom_point(size = 0.5) + 
   ylab("Genes detected\n(resampled library)") +
@@ -522,99 +427,6 @@ save_plot("genes_detected_scatterplot.pdf", plt)
 ```
 
 ### Parse out new versus previously identified genes
-
-```{r genes_new_old}
-
-calc_gene_sensitivity <- function(sc_obj, 
-                                  type = "umi"){
-  
-  if (type == "umi"){
-    count_matrix <- sc_obj$umi_matrix
-  } else {
-    count_matrix <- sc_obj$read_matrix
-  }
-  # generate list named with barcode of each detected gene and 
-  # respective read/umi count
-  genes_detected <- apply(count_matrix, 2, function(x) x[x > 0])
-  sc_obj$genes_detected <- genes_detected
-  sc_obj
-}
-
-sc_objs <- map(sc_objs, calc_gene_sensitivity)
-  
-```
-
-
-```{r compare_original}
-sc_objs <- map(sc_objs, 
-           function(x){
-             og_genes <- sc_objs[[reflib]]$genes_detected
-             sub_genes <- x$genes_detected
-             
-             # subset list of cell barcodes to the same as the og experiment
-             # and also reorders the barcodes to match
-             sub_genes <- sub_genes[names(og_genes)]
-             
-             if(length(sub_genes) != length(og_genes)){
-               stop("barcode lengths not the same")
-             }
-             shared_genes <- map2(sub_genes, 
-                                  og_genes,
-                                  ~intersect(names(.x),
-                                             names(.y)))
-             new_genes <- map2(sub_genes,
-                               og_genes,
-                               ~setdiff(names(.x),
-                                        names(.y)))
-             
-             not_recovered_genes <- map2(og_genes,
-                                         sub_genes,
-                                         ~setdiff(names(.x),
-                                                  names(.y)))
-             x$shared_genes <- shared_genes
-             x$new_genes <- new_genes
-             x$not_recovered_genes <- not_recovered_genes
-             return(x)
-             })
-
-## add gene recovery info to meta data table
-sc_objs <- map(sc_objs, 
-           function(x){
-             shared_genes <- map2_dfr(x$shared_genes, 
-                                names(x$shared_genes),
-                                function(x, y){
-                                  data_frame(cell_id = y,
-                                             shared_genes = length(x))
-                                 })
-             
-             not_recovered_genes <- map2_dfr(x$not_recovered_genes, 
-                                names(x$not_recovered_genes),
-                                function(x, y){
-                                  data_frame(cell_id = y,
-                                            not_recovered_genes = length(x))
-                                 })
-             
-             new_genes <- map2_dfr(x$new_genes, 
-                                names(x$new_genes),
-                                function(x, y){
-                                  data_frame(cell_id = y,
-                                            new_genes = length(x))
-                                 })
-             gene_mdata <- left_join(shared_genes,
-                                     not_recovered_genes,
-                                     by = "cell_id") %>% 
-               left_join(., new_genes, by = "cell_id")
-             
-             x <- add_metadata(x, gene_mdata)
-             x
-           })
-
-resampled_metadat <- map(sc_objs, ~.x$meta_dat) %>% 
-  bind_rows(.id = "library") %>% 
-   mutate(library = factor(library, 
-                          levels = libs))
-```
-
 
 ```{r per_cell_gene_recovery}
 
@@ -680,7 +492,7 @@ plt <- ggplot(plt_dat,
   labs(y = "# of genes") + 
   scale_x_discrete(labels = cell_names) + 
   scale_y_continuous(labels = scales::comma) + 
-  scale_fill_brewer(palette = "Set1", name = "") +
+  scale_fill_manual(values = palette_okabeito[4:6], name = "") +
   guides(fill = guide_legend(override.aes = list(size = 0.25))) +
   theme(axis.title.x = element_blank(),
         axis.text.x = element_text(angle = 45,
@@ -698,8 +510,7 @@ save_plot("new_genes_barplot.pdf", plt,
 
 
 ```{r shared_new_genes}
-new_genes <- sc_objs$mkcell_pulldown$new_genes[str_c(cells$mkcell_pulldown,
-                                                     "-1")]
+new_genes <- sc_objs$mkcell_pulldown$new_genes[cells$mkcell_pulldown]
 
 all_genes <- unique(unlist(new_genes))
 
@@ -710,9 +521,6 @@ dev.off()
 
 upset(fromList(new_genes), order.by = "freq")
 ```
-
-
-
 
 Compare new genes to previously detected genes in the cluster
 
@@ -740,7 +548,7 @@ calc_ma <- function(xmat, ymat, cell = "GCAGTTAAGTGTCCAT"){
 
 genes_to_plot <- rownames(sc_objs[[resampled_lib]]$umi_matrix)
 cols <- colnames(sc_objs[[resampled_lib]]$norm_umi)
-cell_ids <- str_c(cells[[resampled_lib]], "-1")
+cell_ids <- cells[[resampled_lib]]
 
 ## append genes to reference library if necessary
 ref_mat <- standardize_rows(sc_objs[[resampled_lib]]$umi_matrix[, cols],
@@ -1008,49 +816,7 @@ save_plot("expression_newgenes_violinplots.pdf", new_gene_plt,
 ### Parse out new verses old UMIs
 ```{r read_umi_seqs}
 
-compare_umis <- function(path_to_ctrl,
-                         path_to_test,
-                         return_summary = F,
-                         cells_exclude = "Cell_unmatched"){
-
-  ## umi seqs should be produced by ./get_molecule_info
-  ctrl_umi_seqs <- read_tsv(path_to_ctrl,
-                   col_names = c("barcode_10x", 
-                                 "umi_molecule", 
-                                 "count")) %>% 
-  filter(!barcode_10x %in% cells_exclude)
-
-  test_umi_seqs <- read_tsv(path_to_test,
-                   col_names = c("barcode_10x", 
-                                 "umi_molecule", 
-                                 "count")) %>% 
-  filter(!barcode_10x %in% cells_exclude)
-
-  umi_seqs <- full_join(ctrl_umi_seqs, 
-          test_umi_seqs, 
-          by = c("barcode_10x", "umi_molecule"))
-  
-  if (return_summary) {
-    umi_seqs %>% 
-      mutate(new_umi = ifelse(is.na(count.x) & !is.na(count.y), 
-                          1L, 
-                          0L),
-         not_detected_umi = ifelse(!is.na(count.x) & is.na(count.y),
-                                   1L,
-                                   0L),
-         shared_umi = ifelse(!is.na(count.x) & !is.na(count.y),
-                             1L,
-                             0L)) %>% 
-      group_by(barcode_10x) %>% 
-      summarize(new_umis = sum(new_umi),
-            not_detected_umis = sum(not_detected_umi),
-            shared_umis = sum(shared_umi))
-  } else {
-    umi_seqs
-  }
-}
-
-umi_files <- file.path(data_dir, libs, "umis", "umigroups.txt.gz")
+umi_files <- file.path(lib_data_dir, libs, "umis", "umigroups.txt.gz")
 
 umi_summaries <- map(umi_files[2],
                    ~compare_umis(umi_files[1], .x, return_summary = T))
@@ -1071,7 +837,7 @@ cell_annot <- data_frame(barcode_10x = cells,
   unnest()
 
 umis_recovered <- umis_recovered %>% 
-  mutate(resampled = ifelse(str_replace(barcode_10x, "-1", "") %in% unlist(cells),
+  mutate(resampled = ifelse(barcode_10x %in% unlist(cells),
                              T,
                              F)) %>% 
   arrange(resampled)
@@ -1097,11 +863,11 @@ umi_seqs <- map(umi_files[2],
 
 names(umi_seqs) <- umi_files[2] %>% 
   str_split(., "/") %>% 
-  map_chr(~.x[7])
+  map_chr(~.x[9])
 
 new_umis <- map(umi_seqs, 
     ~filter(.x, 
-       str_replace(barcode_10x, "-1", "") %in% unlist(cells), 
+       barcode_10x %in% unlist(cells), 
        !is.na(count.y), 
        is.na(count.x))  %>% 
   separate(umi_molecule, c("seq", "gene"), sep = "::") %>% 
@@ -1109,7 +875,7 @@ new_umis <- map(umi_seqs,
 
 old_umis <- map(umi_seqs, 
     ~filter(.x, 
-       str_replace(barcode_10x, "-1", "") %in% unlist(cells), 
+       barcode_10x %in% cells[[resampled_lib]], 
        !is.na(count.x),
        !is.na(count.y))  %>% 
   separate(umi_molecule, c("seq", "gene"), sep = "::") %>% 
@@ -1130,7 +896,7 @@ umi_edit_dist <- bind_rows(umi_edit_dist,
                            .id = "library")
 umi_edit_dist <-  mutate(umi_edit_dist, 
                           barcode_10x = factor(barcode_10x, 
-                              levels = str_c(cells[[resampled_lib]], "-1")))
+                              levels = cells[[resampled_lib]]))
 
 plt <- ggplot(umi_edit_dist, aes(barcode_10x, 
                           min_ed)) + 
@@ -1148,35 +914,13 @@ plt <- ggplot(umi_edit_dist, aes(barcode_10x,
 save_plot("umi_edit_distance.pdf", plt)
 ```
 
-```{r save_obs}
-saveRDS(sc_objs, "sc_objs.rds")
-```
+
 ## tSNE analysis
 
 ### original library tSNE
 
-```{r tsne, results='hide'}
-library(Seurat)
-
-mat <- sc_objs[[reflib]]$umi_matrix
-sobj <- CreateSeuratObject(mat, min.genes = 200)
-sobj <- NormalizeData(sobj)
-
-sobj <- ScaleData(sobj)
-sobj <- FindVariableGenes(sobj, do.plot = T, y.cutoff = 0.25)
-sobj <- RunPCA(sobj, pc.genes = rownames(sobj@data), 
-               pcs.compute = 20, 
-               do.print = F, seed.use = 20180525)
-sobj <- RunTSNE(sobj, dims.use = 1:15, seed.use = 20180525)
-sobj <- FindClusters(sobj,
-                     dims.use = 1:15, 
-                     k.param = 15,
-                     resolution = 1.2, 
-                     print.output = F, 
-                     random.seed = 20180525)
-```
-
 ```{r plt_tsne}
+sobj <- readRDS("original_sobj.rds")
 plt <- TSNEPlot(sobj, 
                 colors.use = c(brewer.pal(12, "Paired"), 
                                brewer.pal(9, "Set1")),
@@ -1187,17 +931,6 @@ plt <- TSNEPlot(sobj,
 plt
 save_plot("original_mkcells_tsne.pdf", plt, 
           base_height = 4.25, base_width = 4.25)
-
-cell_mdata <- sobj@meta.data %>% 
-  tibble::rownames_to_column("cell") %>% 
-  mutate(resampled = ifelse(cell %in% str_c(cells$mkcell_pulldown, "-1"), 
-                             T,
-                             F)) %>% 
-  select(cell, resampled) %>% 
-  as.data.frame() %>% 
-  tibble::column_to_rownames("cell") 
-
-sobj <- AddMetaData(sobj, cell_mdata, col.name = "resampled")
 
 sobj <- SetAllIdent(sobj, "resampled")
 
@@ -1234,33 +967,6 @@ save_plot("og_tsne_markers.pdf", plt,
 
 sobj <- SetAllIdent(sobj, "res.1.2")
 
-new_ids <- c(
-  "0" = "CD4+ T-Cells",
-  "1" = "CD8+ T-Cells",
-  "2" = "CD4+ T-Cells",
-  "3" = "CD8+ T-Cells",
-  "4" = "CD14+ Monocytes",
-  "5" = "CD8+ T-Cells",
-  "6" = "CD14+ Monocytes",
-  "7" = "FCGR3A+ Monocytes",
-  "8" = "CD14+ Monocytes",
-  "9" = "CD14+ Monocytes",
-  "10" = "Dendritic",
-  "11" = "CD4+ T-Cells",
-  "12" = "B-Cells",
-  "13" = "NK Cells",
-  "14" = "Megakaryocytes",
-  "15" = "CD8+ T-Cells",
-  "16" = "Plasmacytoid dendritic"
-)
-old_ids <- sobj@meta.data %>% 
-  rownames_to_column("cell") %>% 
-  pull("res.1.2")
-
-new_labels <- new_ids[old_ids] %>% unname()
-new_df <- data.frame(row.names = rownames(sobj@meta.data),
-                     cell_labels = new_labels)
-sobj <- AddMetaData(sobj, new_df)
 ```
 
 ```{r cell_percentages}
@@ -1336,88 +1042,16 @@ save_plot("original_pbmc_annotated_tsne.pdf", plt,
 ```
 
 
-```{r}
-saveRDS(sobj, "og_sobj.rds")
-```
-
 ```{r find_mk_markers}
-
-if (!file.exists("original_pbmc_markers.txt")){
-  sobj <- SetAllIdent(sobj, "cell_labels")
-  all_markers <- FindAllMarkers(sobj)
-  write_tsv(all_markers, "original_pbmc_markers.txt")
-}
-
 all_markers <- read_tsv("original_pbmc_markers.txt")
 cell_mdata <- sobj@meta.data %>% 
   tibble::rownames_to_column("cell") 
-
 ```
-
-
 
 ### original library tSNE supplemented with resampled barcodes
 
-
-```{r resampled_tsn, results='hide'}
-
-mat <- sc_objs[[reflib]]$umi_matrix
-
-resampled_ids <- sc_objs[[resampled_libs]]$meta_dat %>% 
-  filter(resampled) %>% 
-  pull(cell_id)
-
-resampled_mat <- sc_objs[[resampled_libs]]$umi_matrix[, resampled_ids]
-colnames(resampled_mat) <- str_c(colnames(resampled_mat), 
-                                  "::", "resampled")
-
-mat <- as.data.frame(as.matrix(mat)) %>% rownames_to_column("gene")
-resampled_mat <- as.data.frame(as.matrix(resampled_mat)) %>% rownames_to_column("gene")
-
-combined_mats <- left_join(mat, resampled_mat, by = c("gene")) 
-combined_mats <- as.data.frame(combined_mats) %>% 
-  column_to_rownames("gene") %>% 
-  as.matrix() %>% 
-  as(., "sparseMatrix")   
-
-combined_mats[is.na(combined_mats)] <- 0
-
-sobj <- CreateSeuratObject(combined_mats, min.genes = 200)
-
-new_ids <- sobj@meta.data %>% 
-  rownames_to_column("cell") %>% 
-  mutate(resampled = ifelse(str_detect(cell, "resampled"),
-                             "resampled",
-                             "not resampled"))
-
-resampled_cell_ids <- new_ids[new_ids$resampled == "resampled", 
-                              "cell"] %>% 
-  str_replace("::resampled", "")
- 
-new_ids <- mutate(new_ids, 
-                  resampled = ifelse(cell %in% resampled_cell_ids, 
-                                      "original cell",
-                                      resampled)) %>% 
-  select(cell, resampled) %>% 
-  as.data.frame(.) %>% 
-  column_to_rownames("cell")
-
-sobj <- AddMetaData(sobj, new_ids)
-sobj <- NormalizeData(sobj)
-sobj <- ScaleData(sobj)
-sobj <- FindVariableGenes(sobj, do.plot = F, y.cutoff = 0.25)
-sobj <- RunPCA(sobj, pc.genes = rownames(sobj@data), 
-               pcs.compute = 20, 
-               do.print = F, seed.use = 20180605)
-sobj <- RunTSNE(sobj, dims.use = 1:15, seed.use = 20180605)
-sobj <- FindClusters(sobj,
-                     dims.use = 1:15, 
-                     resolution = 1.2, 
-                     print.output = F, 
-                     random.seed = 20180605)
-```
-
 ```{r resampled_plots}
+sobj <- readRDS("rs_sobj.rds")
 plt <- TSNEPlot(sobj, 
                 colors.use = c(brewer.pal(12, "Paired"), 
                                brewer.pal(9, "Set1")),
@@ -1427,10 +1061,6 @@ plt
 save_plot("original_with_resampled_mkcells_tsne.pdf", plt, 
           base_height = 4.25, base_width = 4.25)
 
-```
-
-
-```{r}
 ### Plot original and resampled close-up
 pf4 <- plot_feature(sobj, gene = "PF4", pt.alpha = 1, pt.size = 0.1) +
   labs(title = "",
@@ -1519,52 +1149,14 @@ save_plot("resampled_vs_original_closeup.pdf",
           plt, nrow = 1, ncol = 3, base_aspect_ratio = 1.2)
 ```
 
-```{r}
-saveRDS(sobj, "rs_sobj.rds")
-```
-
-## kNN analysis
-
-Find the k-nearest neighbors in PCA space
-
-
-```{r, knns}
-
-## use combined data from above
-data.use <- GetCellEmbeddings(object = sobj,
-                              reduction.type = "pca",
-                              dims.use = 1:20)
-
-## findnearest neighboors using exact search
-knn <- RANN::nn2(data.use, k = 5,
-                 searchtype = 'standard',
-                 eps = 0)
-
-resampled_idxs <- knn$nn.idx[str_detect(rownames(data.use),
-                                         "::resampled"), ]
-
-nn_ids <- as_data_frame(t(apply(resampled_idxs, 1,
-                      function(x)rownames(data.use)[x])))
-
-colnames(nn_ids) <- c("query_cell", 
-                      paste0("nearest neighbor ", 
-                             1:(ncol(nn_ids) - 1)))
-
-nn_ids
-```
-
-
 
 ## Heatmap analysis
 
 Plot average megakaryocyte expression, the original megakaroytes, and the resampled megakaryocytes. Plot markers of megakaryocytes, defined above using the original data.
 
 ```{r, eval = T}
-og_sobj <- readRDS("og_sobj.rds")
-
+og_sobj <- readRDS("original_sobj.rds")
 ```
-
-
 
 ## Combined resampled and original cells
 
@@ -1575,10 +1167,9 @@ Calculate markers for MKs after merging resampling expression into original cell
 mat <- sc_objs[[reflib]]$umi_matrix
 
 resampled_mat <- sc_objs[[resampled_lib]]$umi_matrix[,
-                                                str_c(cells[[resampled_lib]], "-1")]
+                                                     cells[[resampled_lib]]]
 
-not_resampled_cell_ids <- colnames(mat)[!colnames(mat) %in% str_c(cells[[resampled_lib]],
-                                                                  "-1")]
+not_resampled_cell_ids <- colnames(mat)[!colnames(mat) %in% cells[[resampled_lib]]]
 no_resampled_mat <- mat[, not_resampled_cell_ids]
 
 ## add additional genes (original)
@@ -1606,7 +1197,7 @@ sobj <- CreateSeuratObject(combined_mat, min.genes = 200)
 
 new_ids <- sobj@meta.data %>% 
   rownames_to_column("cell") %>% 
-  mutate(resampled = ifelse(cell %in% str_c(cells[[resampled_lib]], "-1"),
+  mutate(resampled = ifelse(cell %in% cells[[resampled_lib]],
                              "resampled",
                              "not resampled"))
 
@@ -1660,9 +1251,9 @@ ggplot(shared_mk_markers,
   geom_abline()
 
 plot_expr_raw <- data_frame(og = og_sobj@raw.data[new_mk_markers$gene,
-                                              str_c(cells$mkcell_pulldown, "-1")[1]],
+                                              cells$mkcell_pulldown[1]],
                         resampled = sobj@raw.data[new_mk_markers$gene,
-                                                  str_c(cells$mkcell_pulldown, "-1")[1]])
+                                                  cells$mkcell_pulldown[1]])
 
 ggplot(plot_expr_raw, 
        aes(og, resampled)) + 
@@ -1670,10 +1261,8 @@ ggplot(plot_expr_raw,
   geom_abline()
 
 plot_expr_norm <- data_frame(og = og_sobj@data[new_mk_markers$gene,
-                                              str_c(cells$mkcell_pulldown, "-1")[1]],
-                        resampled = sobj@data[new_mk_markers$gene,
-                                                  str_c(cells$mkcell_pulldown,
-                                                        "-1")[1]])
+                                              cells$mkcell_pulldown[1]],
+                        resampled = sobj@data[new_mk_markers$gene,cells$mkcell_pulldown[1]])
 
 ggplot(plot_expr_norm, 
        aes(og, resampled)) + 
@@ -1692,7 +1281,7 @@ mk_markers <- filter(all_markers,
 
 genes_to_plot <- rownames(sc_objs[[resampled_lib]]$umi_matrix)
 cols <- colnames(sc_objs[[resampled_lib]]$norm_umi)
-cell_ids <- str_c(cells[[resampled_lib]], "-1")
+cell_ids <- cells[[resampled_lib]]
 
 ## append genes to reference library if necessary
 ref_mat <- standardize_rows(sc_objs[[resampled_lib]]$umi_matrix[,
@@ -1707,8 +1296,7 @@ ma_dat <- map(cell_ids,
 names(ma_dat) <- cell_ids
 ma_dat <- bind_rows(ma_dat, .id = "cell") %>% 
   mutate(cell = factor(cell,
-                       levels = str_c(cells[[resampled_lib]],
-                                      "-1")))
+                       levels = cells[[resampled_lib]]))
 
 plot_ma <- function(df, markers){
   
@@ -1766,14 +1354,13 @@ To determine if a subset of the new genes detected in the 4 cells are actually m
 #### Shared marker genes
 
 ```{r}
-sc_objs <- readRDS("sc_objs.rds")
+sc_objs <- readRDS("processed_data.rds")
 mk_10x_markers <- read_tsv(file.path(results_dir, 
                                       "2018-06-01",
                                       "mk_markers_pbmc68k.txt")) %>% 
   filter(p_val_adj < 0.01)
 
-new_genes <- sc_objs$mkcell_pulldown$new_genes[str_c(cells$mkcell_pulldown,
-                                                     "-1")]
+new_genes <- sc_objs$mkcell_pulldown$new_genes[cells$mkcell_pulldown]
 
 
 names(new_genes) <-  cell_names[names(new_genes)]
@@ -1783,8 +1370,7 @@ pdf("newgenes_shared_in_pulldown_cells.pdf")
 dev.off()
 
 
-all_detected_genes <- sc_objs$mkcell_pulldown$genes_detected[str_c(cells$mkcell_pulldown,
-                                                     "-1")] %>% 
+all_detected_genes <- sc_objs$mkcell_pulldown$genes_detected[cells$mkcell_pulldown] %>% 
   map(., names)
 
 names(all_detected_genes) <-  cell_names[names(all_detected_genes)]
@@ -1793,8 +1379,7 @@ pdf("genes_shared_in_pulldown_cells.pdf")
   upset(fromList(all_detected_genes), order.by = "freq")
 dev.off()
 
-all_detected_genes <- sc_objs$kirkpatrick$genes_detected[str_c(cells$mkcell_pulldown,
-                                                     "-1")] %>% 
+all_detected_genes <- sc_objs$kirkpatrick$genes_detected[cells$mkcell_pulldown] %>% 
   map(., names)
 
 names(all_detected_genes) <-  cell_names[names(all_detected_genes)]
@@ -1808,17 +1393,15 @@ dev.off()
 
 
 ```{r compare_to_markers}
-sc_objs <- readRDS("sc_objs.rds")
+sc_objs <- readRDS("processed_data.rds")
 mk_10x_markers <- read_tsv(file.path(results_dir, 
                                       "2018-06-01",
                                       "mk_markers_pbmc68k.txt")) %>% 
   filter(p_val_adj < 0.01)
 
-new_genes <- sc_objs$mkcell_pulldown$new_genes[str_c(cells$mkcell_pulldown,
-                                                     "-1")]
+new_genes <- sc_objs$mkcell_pulldown$new_genes[cells$mkcell_pulldown]
 genes_per_cell <- map(sc_objs,
-                  ~.x$genes_detected[str_c(cells$mkcell_pulldown,
-                                                     "-1")])
+                  ~.x$genes_detected[cells$mkcell_pulldown])
 
 all_genes <- map(genes_per_cell, ~map(.x, names))
 
@@ -1864,8 +1447,7 @@ summary_df <- map(all_genes,
 summary_df <- map(summary_df, bind_rows, .id = "cell") %>% 
   bind_rows(., .id = "library") %>% 
   mutate(cell = factor(cell, 
-                       levels = str_c(cells[[resampled_lib]],
-                                      "-1")))
+                       levels = cells[[resampled_lib]]))
 
 plt <- ggplot(summary_df,
        aes(cell, n_markers)) +
@@ -1894,7 +1476,7 @@ plt
 
 
 ```{r}
-og_sobj <- readRDS("og_sobj.rds")
+og_sobj <- readRDS("original_sobj.rds")
 og_sobj <- SetAllIdent(og_sobj, "cell_labels")
 avg_og_expr <- AverageExpression(og_sobj)
 mk_expr <- avg_og_expr[, "Megakaryocytes", drop = F]
@@ -1935,7 +1517,7 @@ save_plot("ngenesdetected_kirkpatrick_pbmcs.pdf",
  
  
 ```{r get_expr_scat_color}
-og_sobj <- readRDS("og_sobj.rds")
+og_sobj <- readRDS("original_sobj.rds")
 og_sobj <- SetAllIdent(og_sobj, "cell_labels")
 average_expression <- AverageExpression(og_sobj)  
 average_mk_expression <- average_expression[,
@@ -1945,7 +1527,7 @@ average_mk_expression <- average_expression[,
 average_mk_expression <- log1p(average_mk_expression)
 average_mk_expression <- average_mk_expression %>% 
   tibble::rownames_to_column("gene")
-og_expr <- og_sobj@data[, str_c(cells$mkcell_pulldown, "-1")] %>% 
+og_expr <- og_sobj@data[, cells$mkcell_pulldown] %>% 
   as.matrix(.) %>% 
   as.data.frame(.) %>% 
   tibble::rownames_to_column("gene")
@@ -1991,7 +1573,7 @@ average_rsmk_expression <- average_rs_expression[,
 average_rsmk_expression <- log1p(average_rsmk_expression)
 average_rsmk_expression <- average_rsmk_expression %>% 
   tibble::rownames_to_column("gene")
-rs_expr <- sobj@data[, str_c(cells$mkcell_pulldown, "-1")] %>% 
+rs_expr <- sobj@data[, cells$mkcell_pulldown] %>% 
   as.matrix(.) %>% 
   as.data.frame(.) %>% 
   tibble::rownames_to_column("gene")
@@ -2048,73 +1630,6 @@ save_plot("expression_versus_cluster_average.pdf", plt,
 Rui had a great idea to downsample the # of cells in the MK cluster and find markers with the original cells, and the subsampled cells.
 
 There are 68 mks in this data set. 
-```{r downsample}
-
-resampled_file <- file.exists("downsampled_mk_cluster_markers_resampling.txt")
-not_resampled_file <- file.exists("downsampled_mk_cluster_markers_no_resampling.txt")
-if(!(resampled_file & not_resampled_file)){
-  mks <- sobj@meta.data[sobj@meta.data$cell_labels == "Megakaryocytes", ]
-  rs_mks <- mks[mks$resampled == "original cell", ]
-  not_re_mks <- mks[mks$resampled == "not resampled", ]
-  not_mks <- sobj@meta.data[sobj@meta.data$cell_labels != "Megakaryocytes", ]
-  
-  n_mks_to_test <- seq(0, nrow(not_re_mks), by = 5)
-  
-  set.seed(42)
-  not_re_mk_sampled <- map(n_mks_to_test, 
-                           ~sample_n(not_re_mks, .x))
-  
-  sampled_mks <- map(not_re_mk_sampled, 
-                     ~c(rownames(.x), 
-                        rownames(rs_mks)))
-  
-  all_cells_minus_not_sampled_mks <- map(sampled_mks,
-                                         ~c(.x, rownames(not_mks)))
-  
-  subsampled_markers <- map(all_cells_minus_not_sampled_mks, 
-                            function(x){
-                              tmp_dat <- SubsetData(sobj, cells.use = x)
-                              markers <- FindMarkers(tmp_dat, 
-                                                     "Megakaryocytes",
-                                                     only.pos = T)
-                              markers
-                            })
-  
-  
-  og_rs_mks <- og_sobj@meta.data[og_sobj@meta.data$resampled, ]
-  
-  sampled_mks <- map(not_re_mk_sampled, 
-                     ~c(rownames(.x), 
-                        rownames(og_rs_mks)))
-  
-  all_cells_minus_not_sampled_mks <- map(sampled_mks,
-                                         ~c(.x, rownames(not_mks)))
-  
-  subsampled_markers_og <- map(all_cells_minus_not_sampled_mks,
-                               function(x){
-                                 tmp_dat <- SubsetData(og_sobj, cells.use = x)
-                                 markers <- FindMarkers(tmp_dat, 
-                                                        "Megakaryocytes",
-                                                        only_pos = T)
-                                 markers
-                               })
-  subsampled_markers <- map(subsampled_markers, 
-                            ~tibble::rownames_to_column(.x, "gene")) 
-  names(subsampled_markers) <- n_mks_to_test
-  subsampled_markers <- bind_rows(subsampled_markers, .id = "n_mks")
-  write_tsv(subsampled_markers,
-            "downsampled_mk_cluster_markers_resampling.txt")
-  
-  subsampled_markers_og <- map(subsampled_markers_og, 
-                               ~tibble::rownames_to_column(.x, "gene")) 
-  
-  names(subsampled_markers_og) <- n_mks_to_test
-  subsampled_markers_og <- bind_rows(subsampled_markers_og, .id = "n_mks")
-  write_tsv(subsampled_markers_og,
-            "downsampled_mk_cluster_markers_no_resampling.txt")
-}
-```
-
 ```{r}
 subsampled_markers_og <- read_tsv("downsampled_mk_cluster_markers_no_resampling.txt") 
 
@@ -2151,6 +1666,7 @@ save_plot("resampling_marker_discovery_sensitivity.pdf",
 
 
 ```{r tsne_with_only_4_original_cells}
+sobj <- readRDS("rs_v2_sobj.rds")
 mks <- sobj@meta.data[sobj@meta.data$cell_labels == "Megakaryocytes", ]
 rs_mks <- mks[mks$resampled == "original cell", ]
 not_mks <- sobj@meta.data[sobj@meta.data$cell_labels != "Megakaryocytes", ]

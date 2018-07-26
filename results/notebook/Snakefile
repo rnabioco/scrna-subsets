@@ -4,7 +4,7 @@ RESULTS = "../"
 
 PLOT_RMD = [
   ["2018-05-16_mouse_human", "plot"],
-  ["2018-05-15_pbmc", "mkcell_pulldown"],
+  ["2018-05-15_pbmc", "plot"],
   ["2018-04-27_pcr_expt", "pcr_enrichment"],
   ["2018-05-21_new_old_umis", "umis"],
   ["2018-07-10_species_specificity", "species-spec"],
@@ -13,16 +13,17 @@ PLOT_RMD = [
   ]
 
 PROCESSING_RMD = [
-  ["2018-05-16_mouse_human"],
+  "2018-05-16_mouse_human",
+  "2018-05-15_pbmc"
   ]
 
-PLOT_RMDS = [os.path.join(*x) for x in PLOT_RMD]
-PROCESSING_RMDS = [os.path.join(*x) for x in PROCESSING_RMD]
+PLOT_RMD = [os.path.join(*x) for x in PLOT_RMD]
+
 rule all:
   input:
     os.path.join("_site", "index.html"),
-    expand(os.path.join(RESULTS, "{rmd}", "process.html"), rmd = PROCESSING_RMDS),
-    expand(os.path.join(RESULTS, "{plot_rmd}.html"), plot_rmd = PLOT_RMDS),
+    expand(os.path.join(RESULTS, "{date}", "process.html"), date = PROCESSING_RMD),
+    expand(os.path.join(RESULTS, "{rmd}.html"), rmd = PLOT_RMD),
 
     
 rule build_site:
@@ -31,7 +32,7 @@ rule build_site:
   input:
     rmd = "index.Rmd",
     htmls = expand(os.path.join(RESULTS, "{rmd}.html"), 
-      rmd = [PROCESSING_RMDS + PLOT_RMDS])
+      rmd = [PLOT_RMD]),
   output:
     os.path.join("_site", "index.html")
   log:
@@ -41,17 +42,33 @@ rule build_site:
     R -e "rmarkdown::render_site('{input.rmd}')"
     """
   
-
+rule run_plotting_markdown:
+  """ 
+  render Rmarkdown to produce intermediate data files
+  """
+  input:
+   rmd =  os.path.join(RESULTS, "{rmd}.Rmd"),
+   processing_rmd = expand(os.path.join(RESULTS, "{date}", "process.html"),
+     date = PROCESSING_RMD)
+  output:
+    os.path.join(RESULTS, "{rmd}.html")
+  log:
+    "logs/process_{rmd}.txt",
+  shell:
+    """
+    R -e "rmarkdown::render('{input.rmd}')"
+    """
+    
 rule run_processing_markdown:
   """ 
   render Rmarkdown to produce intermediate data files
   """
   input:
-    os.path.join(RESULTS, "{rmd}.Rmd")
+    os.path.join(RESULTS, "{date}", "process.Rmd")
   output:
-    os.path.join(RESULTS, "{rmd}.html")
+    os.path.join(RESULTS, "{date}", "process.html")
   log:
-    "logs/build_{rmd}.txt",
+    "logs/process_{date}.txt",
   shell:
     """
     R -e "rmarkdown::render('{input}')"

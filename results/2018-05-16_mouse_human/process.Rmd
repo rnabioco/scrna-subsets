@@ -1,0 +1,577 @@
+---
+title: "process data from mouse human pulldown"
+author: "Kent Riemondy RBI"
+date: '`R Sys.Date()`'
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: false
+    theme: cosmo
+    highlight: tango
+    fig_caption: true
+    code_folding: hide
+    df_print: paged
+---
+
+## Mouse and Human cell recovery
+
+A 10x genomics scRNA-Seq library was constructed from a mix of 293T and NIH3T3 cells. A mouse and a human cell barcode was selected for pulldown with a biotinylated DNA oligo with LNA bases added every third nucleotide.
+
+Following reamplification the 2 cell libraries were pooled and resequenced together. The raw fastqs were then processed using a Snakemake [pipeline](../../pipeline/Snakefile), to produce two processed data files:
+
+1. A matrix with UMIs per cell (column) per gene (rows) (dge_matrix.txt)
+1. A flatfile with per UMI information (umigroups.txt.gz)
+
+This RMarkdown document will produce the following datafiles:
+
+1. ...
+1. ...
+1. ...
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+```
+
+```{r, message=F, warning=F, echo=F}
+source("../../R/globals.R")
+```
+
+## Organize single cell libraries
+
+First designate the libraries and the cells that were resampled. 
+
+```{r cell_ids}
+cells <- list(
+  mouse_human_cell_pulldown = c("GACGTTAGTGCCTGTG",
+                                "CTGATCCCATGACGGA"))
+
+libs <- c(
+  "original_10x",
+  "mouse_human_cell_pulldown")
+
+lib_data_dir <- file.path(data_dir, 
+                          "lna_cell",
+                          "mh_mix")
+
+bc_metadat <- read_tsv(file.path(lib_data_dir, 
+                                 "original_10x", 
+                                 "fastq",
+                                 "original", 
+                                 "barcodes_from_10x_run.txt"),
+                       col_names = c("cell_id", "barcode_10x")) 
+
+## original library to compare against
+reflib <- "original_10x"
+resampled_libs <- c("mouse_human_cell_pulldown")
+
+## reference resampled lib for resampled vs control plots
+resampled_lib <- "mouse_human_cell_pulldown"
+
+## pretty name for libraries
+lib_names = c(
+  original_10x = "Original Library",
+  mouse_human_cell_pulldown = "Resampled Library"
+)
+
+## pretty names for cells
+cell_names = c(
+  "GACGTTAGTGCCTGTG-1" = "Mouse Cell",
+  "CTGATCCCATGACGGA-1" = "Human Cell")
+
+```
+
+Load and organize a table for each library of read counts per cell per gene, and a table of umi counts per cell per gene. 
+
+```{r read_counts}
+
+## read in umigroups flat file with read counts per umi per gene per cell
+## expand out to a read count matrix
+umipaths <- file.path(lib_data_dir, 
+                      libs, 
+                      "umis",
+                      "umigroups.txt.gz")
+read_dat <- map(umipaths, 
+                ~umis_to_genes(.))
+names(read_dat) <- libs
+
+## read in umi_tools count table with umi counts per gene per cell
+## drop rows with 0 counts
+umi_dat <- map(libs, 
+                ~read_tsv(file.path(lib_data_dir, 
+                          .x,
+                          "dgematrix",
+                          "dge_matrix.txt")) %>% 
+                 select(-matches("Cell_unmatched")) %>% 
+                 .[rowSums(.[, -1]) > 0, ])
+
+names(umi_dat) <- libs
+
+# add in cell info, including info for the original sample
+cell_obj_mdata <- map(c(cells[1], cells), 
+                      ~mutate(bc_metadat, 
+                              resampled = ifelse(barcode_10x %in% .x,
+                                                  TRUE,
+                                                  FALSE)))
+names(cell_obj_mdata) <- libs
+```
+
+Next organize these tables into simple classes called `resampled-sets` to keep track of each experiment's relavant raw, processed, and meta data. 
+
+```{r s3ify}
+sc_objs <- list(umi_dat, read_dat, cell_obj_mdata)
+sc_objs <- pmap(sc_objs, create_sc_obj)
+
+rm(umi_dat)
+rm(read_dat)
+```
+
+Next perform basic processing. 
+  1) generate separate objects to store sparse matrices of umi and read counts. 
+  2) normalize read and umi count data by total library size (sum of all read or umi counts for all cells in the experiment) and report as Reads per million or UMIs per million. 
+  3) Compute per cell metrics (read and umi counts, sequencing saturation)
+
+```{r store_matrices}
+sc_objs <- map(sc_objs, generate_matrices)
+sc_objs <- map(sc_objs, norm_libsize)
+sc_objs <- map(sc_objs, compute_summaries)
+```
+
+Compute enrichment of reads/umis over the original library. 
+
+```{r calc_enrichment}
+
+sc_objs <- map(sc_objs,
+    function(sub_dat){
+      og_counts <- select(sc_objs[[reflib]]$meta_dat,
+                          og_total_reads = total_reads,
+                          og_total_umis = total_umis,
+                          og_norm_total_umis = norm_total_umis,
+                          og_norm_total_reads = norm_total_reads,
+                          og_cDNA_duplication = cDNA_duplication,
+                          cell_id)
+      sub_dat$meta_dat <- left_join(sub_dat$meta_dat,
+                         og_counts, 
+                         by = "cell_id")
+      
+      sub_dat$meta_dat <- mutate(sub_dat$meta_dat,
+                                 read_proportion = log2( total_reads / og_total_reads),
+                                 umi_proportion = log2( total_umis / og_total_umis),
+                                 norm_read_proportion = log2( norm_total_reads /
+                                                                og_norm_total_reads),
+                                 norm_umi_proportion = log2( norm_total_umis /
+                                                               og_norm_total_umis))
+      sub_dat
+    })
+
+```
+
+Next write out matrices to disk, for eventual GEO deposit
+
+```{r}
+dir.create("count_matrices", showWarnings = F)
+iwalk(sc_objs, 
+     function(x, y) {
+       out_fn <- file.path("count_matrices", paste0(y, "_umis.tsv"))
+       write_tsv(x$umis, out_fn)
+       R.utils::gzip(out_fn, overwrite = TRUE)
+     })
+```
+
+
+
+## Compare species 
+
+```{r calc_species}
+
+add_species_counts <- function(sc_obj, 
+                               mouse_gene_prefix = "mm38::",
+                               human_gene_prefix = "hg38::"){
+  
+  ## get mouse and human reads
+  g_ids <- rownames(sc_obj$read_matrix)
+  mouse_ids <- str_subset(g_ids, str_c("^", mouse_gene_prefix))
+  human_ids <- str_subset(g_ids, str_c("^", human_gene_prefix))
+  
+  mouse_reads = colSums(sc_obj$read_matrix[mouse_ids, ])
+  human_reads = colSums(sc_obj$read_matrix[human_ids, ])
+  
+  ## get mouse and human UMIs
+  g_ids <- rownames(sc_obj$umi_matrix)
+  mouse_ids <- str_subset(g_ids, str_c("^", mouse_gene_prefix))
+  human_ids <- str_subset(g_ids, str_c("^", human_gene_prefix))
+  
+  mouse_umis = colSums(sc_obj$umi_matrix[mouse_ids, ])
+  human_umis = colSums(sc_obj$umi_matrix[human_ids, ])
+  
+  ## get norm counts for reads 
+  g_ids <- rownames(sc_obj$norm_reads)
+  mouse_ids <- str_subset(g_ids, str_c("^", mouse_gene_prefix))
+  human_ids <- str_subset(g_ids, str_c("^", human_gene_prefix))
+  
+  norm_human_reads <- colSums(sc_obj$norm_reads[human_ids, ])
+  norm_mouse_reads <- colSums(sc_obj$norm_reads[mouse_ids, ])
+  
+  ## get norm counts for umis
+  g_ids <- rownames(sc_obj$norm_umi)
+  mouse_ids <- str_subset(g_ids, str_c("^", mouse_gene_prefix))
+  human_ids <- str_subset(g_ids, str_c("^", human_gene_prefix))
+  
+  norm_human_umis <- colSums(sc_obj$norm_umi[human_ids, ])
+  norm_mouse_umis <- colSums(sc_obj$norm_umi[mouse_ids, ])
+  
+  sc_obj <- add_metadata(sc_obj, human_reads)
+  sc_obj <- add_metadata(sc_obj, mouse_reads)
+  sc_obj <- add_metadata(sc_obj, human_umis)
+  sc_obj <- add_metadata(sc_obj, mouse_umis)
+  sc_obj <- add_metadata(sc_obj, norm_human_reads)
+  sc_obj <- add_metadata(sc_obj, norm_mouse_reads)
+  sc_obj <- add_metadata(sc_obj, norm_human_umis)
+  sc_obj <- add_metadata(sc_obj, norm_mouse_umis)
+  
+  ## make sure mouse + human == total
+  stopifnot(all(sc_obj$meta_dat$total_reads == sc_obj$meta_dat$mouse_reads + 
+                                               sc_obj$meta_dat$human_reads, na.rm = T))
+  
+  stopifnot(all(sc_obj$meta_dat$total_umis == sc_obj$meta_dat$mouse_umis + 
+                                               sc_obj$meta_dat$human_umis, na.rm = T))
+  ## check floating point totals
+  tol <- 1e-5
+  reads_check <- all(abs(sc_obj$meta_dat$norm_total_reads - (sc_obj$meta_dat$norm_mouse_reads + 
+                                               sc_obj$meta_dat$norm_human_reads)) <= tol, na.rm = T)
+  stopifnot(reads_check)
+  
+  umis_check <- all(abs(sc_obj$meta_dat$norm_total_umis - (sc_obj$meta_dat$norm_mouse_umis + 
+                                               sc_obj$meta_dat$norm_human_umis)) <= tol, na.rm = T)
+  stopifnot(umis_check)
+  ## calculate species purity (human / human + mouse)
+  sc_obj$meta_dat <- mutate(sc_obj$meta_dat, 
+                            purity_reads = human_reads / (human_reads + mouse_reads),
+                            purity_umis = human_umis / (human_umis + mouse_umis))
+  sc_obj
+}
+
+sc_objs <- map(sc_objs, add_species_counts)
+```
+
+```{r og_species_dat}
+## add in metadat columns for original mouse and original human data
+sc_objs <- map(sc_objs,
+    function(sub_dat){
+      og_dat <- select(sc_objs[[reflib]]$meta_dat,
+                          cell_id,
+                          str_subset(colnames(sc_objs[[reflib]]$meta_dat),
+                                     "human|mouse|purity"))
+                          
+      cols <- colnames(og_dat)
+      new_cols <- c("cell_id", str_c("og_", cols[2:length(cols)]))
+      colnames(og_dat) <- new_cols
+      
+      sub_dat$meta_dat <- left_join(sub_dat$meta_dat,
+                         og_dat, 
+                         by = "cell_id")
+      
+      sub_dat$meta_dat <- mutate(sub_dat$meta_dat,
+                                 norm_human_read_proportion = log2( norm_human_reads /
+                                                                og_norm_human_reads),
+                                 norm_human_umi_proportion = log2( norm_human_umis /
+                                                               og_norm_human_umis),
+                                 norm_mouse_read_proportion = log2( norm_mouse_reads /
+                                                                og_norm_mouse_reads),
+                                 norm_mouse_umi_proportion = log2( norm_mouse_umis /
+                                                               og_norm_mouse_umis))
+      
+      sub_dat
+    })
+
+
+resampled_metadat <- map(sc_objs, ~.x$meta_dat) %>% 
+  bind_rows(.id = "library") %>% 
+  mutate(library = factor(library, 
+                          levels = libs)) %>% 
+  arrange(resampled)
+```
+
+## Genes detected
+
+```{r genes}
+
+## compute per gene or per gene/umi combo enrichment
+detected_molecules <- function(sc_obj, molecule = "gene"){
+  umis <- sc_obj$umi_matrix
+  if (molecule == "gene"){
+    human_mat <- umis[str_detect(rownames(umis), "hg38::"), ]
+    mouse_mat <- umis[str_detect(rownames(umis), "mm38::"), ]
+    n_human_genes <- colSums(human_mat > 0)
+    n_mouse_genes <- colSums(mouse_mat > 0)
+    out_mdat <- data_frame(cell_id = colnames(umis),
+      n_human_genes = n_human_genes,
+      n_mouse_genes = n_mouse_genes)
+    sc_obj <- add_metadata(sc_obj, out_mdat)
+    }
+}
+sc_objs <- map(sc_objs, ~detected_molecules(.x))
+```
+
+### Parse out new versus previously identified genes
+
+```{r genes_new_old}
+calc_gene_sensitivity <- function(sc_obj, 
+                                  type = "umi",
+                                  mouse_gene_prefix = "mm38::",
+                                  human_gene_prefix = "hg38::"){
+  
+  if (type == "umi"){
+    count_matrix <- sc_obj$umi_matrix
+  } else {
+    count_matrix <- sc_obj$read_matrix
+  }
+  # generate list named with barcode of each detected gene and 
+  # respective read/umi count
+  genes_detected <- apply(count_matrix, 2, function(x) x[x > 0])
+  sc_obj$genes_detected <- genes_detected
+  sc_obj
+}
+
+sc_objs <- map(sc_objs, calc_gene_sensitivity)
+  
+```
+
+```{r compare_original}
+sc_objs <- map(sc_objs, 
+           function(x){
+             og_genes <- sc_objs[[reflib]]$genes_detected
+             sub_genes <- x$genes_detected
+             
+             # subset list of cell barcodes to the same as the og experiment
+             # and also reorders the barcodes to match
+             sub_genes <- sub_genes[names(og_genes)]
+             
+             if(length(sub_genes) != length(og_genes)){
+               stop("barcode lengths not the same")
+             }
+             shared_genes <- map2(sub_genes, 
+                                  og_genes,
+                                  ~intersect(names(.x),
+                                             names(.y)))
+             new_genes <- map2(sub_genes,
+                               og_genes,
+                               ~setdiff(names(.x),
+                                        names(.y)))
+             
+             not_recovered_genes <- map2(og_genes,
+                                         sub_genes,
+                                         ~setdiff(names(.x),
+                                                  names(.y)))
+             x$shared_genes <- shared_genes
+             x$new_genes <- new_genes
+             x$not_recovered_genes <- not_recovered_genes
+             return(x)
+             })
+
+## add gene recovery info to meta data table
+sc_objs <- map(sc_objs, 
+           function(x){
+             shared_genes <- map2_dfr(x$shared_genes, 
+                                names(x$shared_genes),
+                                function(x, y){
+                                  mouse <- sum(str_detect(x, "^mm38::")) ;
+                                  human <- sum(str_detect(x, "^hg38::")) ;
+                                  data_frame(cell_id = y,
+                                            mouse_shared_genes = mouse,
+                                            human_shared_genes = human,
+                                            shared_genes = mouse + human)
+                                 })
+             
+             not_recovered_genes <- map2_dfr(x$not_recovered_genes, 
+                                names(x$not_recovered_genes),
+                                function(x, y){
+                                  mouse <- sum(str_detect(x, "^mm38::")) ;
+                                  human <- sum(str_detect(x, "^hg38::")) ;
+                                  data_frame(cell_id = y,
+                                            mouse_not_recovered_genes = mouse,
+                                            human_not_recovered_genes = human,
+                                            not_recovered_genes = mouse + human)
+                                 })
+             
+             new_genes <- map2_dfr(x$new_genes, 
+                                names(x$new_genes),
+                                function(x, y){
+                                  mouse <- sum(str_detect(x, "^mm38::")) ;
+                                  human <- sum(str_detect(x, "^hg38::")) ;
+                                  data_frame(cell_id = y,
+                                            mouse_new_genes = mouse,
+                                            human_new_genes = human,
+                                            new_genes = mouse + human)
+                                 })
+             gene_mdata <- left_join(shared_genes,
+                                     not_recovered_genes,
+                                     by = "cell_id") %>% 
+               left_join(., new_genes, by = "cell_id")
+             
+             x <- add_metadata(x, gene_mdata)
+             x
+           })
+
+```
+
+## tSNE analysis
+
+### original library tSNE
+
+```{r tsne, results='hide'}
+library(Seurat)
+
+mat <- sc_objs[[reflib]]$umi_matrix
+sobj <- CreateSeuratObject(mat)
+sobj <- NormalizeData(sobj)
+sobj <- ScaleData(sobj)
+sobj <- FindVariableGenes(sobj, do.plot = F, y.cutoff = 0.33)
+sobj <- RunPCA(sobj, pc.genes = sobj@var.genes, 
+               pcs.compute = 20, 
+               do.print = F, seed.use = 20180521)
+sobj <- RunTSNE(sobj, dims.use = 1:7, seed.use = 20180521)
+sobj <- FindClusters(sobj,
+                     dims.use = 1:7, 
+                     resolution = 0.6, 
+                     print.output = F, 
+                     random.seed = 20180521)
+
+saveRDS(sobj, "original_sobj.rds")
+```
+
+### original library tSNE supplemented with resampled barcodes
+
+```{r resampled_tsn, results='hide'}
+
+mat <- sc_objs[[reflib]]$umi_matrix
+
+resampled_ids <- sc_objs[[resampled_lib]]$meta_dat %>% 
+  filter(resampled) %>% 
+  pull(cell_id)
+
+resampled_mat <- sc_objs[[resampled_lib]]$umi_matrix[, resampled_ids]
+colnames(resampled_mat) <- str_c(colnames(resampled_mat), 
+                                  "::",
+                                  "resampled")
+
+mat <- as.data.frame(as.matrix(mat)) %>%
+  rownames_to_column("gene")
+resampled_mat <- as.data.frame(as.matrix(resampled_mat)) %>%
+  rownames_to_column("gene")
+
+combined_mats <- left_join(mat, resampled_mat, by = c("gene")) 
+combined_mats <- as.data.frame(combined_mats) %>% 
+  column_to_rownames("gene") %>% 
+  as.matrix() %>% 
+  as(., "sparseMatrix")   
+
+combined_mats[is.na(combined_mats)] <- 0
+
+sobj <- CreateSeuratObject(combined_mats)
+
+new_ids <- sobj@meta.data %>% 
+  rownames_to_column("cell") %>% 
+  mutate(resampled = ifelse(str_detect(cell, "resampled"),
+                             "resampled",
+                             "not resampled"))
+
+resampled_cell_ids <- new_ids[new_ids$resampled == "resampled", "cell"] %>% 
+  str_replace("::resampled", "")
+ 
+new_ids <- mutate(new_ids, 
+                  resampled = ifelse(cell %in% resampled_cell_ids, 
+                                      "original cell",
+                                      resampled)) %>% 
+  select(cell, resampled) %>% 
+  as.data.frame(.) %>% 
+  column_to_rownames("cell")
+
+sobj <- AddMetaData(sobj, new_ids)
+sobj <- NormalizeData(sobj)
+sobj <- ScaleData(sobj)
+sobj <- FindVariableGenes(sobj, do.plot = T, y.cutoff = 1)
+sobj <- RunPCA(sobj, pc.genes = rownames(sobj@data), 
+               pcs.compute = 20, 
+               do.print = F, seed.use = 20180522)
+sobj <- RunTSNE(sobj, dims.use = 1:7, seed.use = 20180522)
+sobj <- FindClusters(sobj, 
+                     dims.use = 1:7, 
+                     resolution = 0.6, 
+                     print.output = F, 
+                     random.seed = 20180522)
+```
+
+
+
+```{r}
+mdata <- sc_objs$mouse_human_cell_pulldown$meta_dat %>% 
+  select(cell_id, resampled, matches("purity_umis"))
+
+mdata_sub <- filter(mdata, resampled) %>% 
+  select(cell_id, resampled, proportion_human = purity_umis) %>% 
+  mutate(cell_id = str_c(cell_id, "::resampled"),
+         proportion_mouse = 1 - proportion_human) 
+
+mdata_ogsub <- filter(mdata, resampled) %>% 
+  select(cell_id, resampled, proportion_human = og_purity_umis) %>% 
+  mutate(proportion_mouse = 1 - proportion_human) 
+
+mdata_not_sub <- filter(mdata, !resampled) %>% 
+  select(cell_id, resampled, proportion_human = og_purity_umis) %>% 
+  mutate(proportion_mouse = 1 - proportion_human)
+
+mdata <- bind_rows(list(mdata_sub, mdata_ogsub, mdata_not_sub)) %>% 
+  unique() %>% 
+  mutate(species = ifelse(proportion_human > 0.90,
+                          "Human",
+                          ifelse(proportion_mouse > 0.90,
+                                 "Mouse",
+                                 "Doublet"))) %>% 
+  as.data.frame() %>% 
+  tibble::column_to_rownames("cell_id") %>% 
+  select(-resampled) 
+
+
+sobj <- AddMetaData(sobj, mdata)
+
+saveRDS(sobj, "rs_sobj.rds")
+```
+
+## kNN analysis
+
+Find the k-nearest neighbors in PCA space
+
+```{r, knns}
+
+## use combined data from above
+data.use <- GetCellEmbeddings(object = sobj,
+                              reduction.type = "pca",
+                              dims.use = 1:7)
+
+## findnearest neighboors using exact search
+knn <- RANN::nn2(data.use, k = 5,
+                 searchtype = 'standard',
+                 eps = 0)
+
+resampled_idxs <- knn$nn.idx[str_detect(rownames(data.use), "::resampled"), ]
+
+nn_ids <- as_data_frame(t(apply(resampled_idxs, 1,
+                      function(x)rownames(data.use)[x])))
+
+colnames(nn_ids) <- c("query_cell", 
+                      paste0("nearest neighbor ", 1:(ncol(nn_ids) - 1)))
+
+nn_ids
+```
+
+## save objects
+
+```{r}
+
+saveRDS(sc_objs, "processed_data.rds")
+
+```

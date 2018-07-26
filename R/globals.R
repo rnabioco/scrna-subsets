@@ -58,7 +58,7 @@ write_gztsv <- function(df, name, ...){
   system(paste0("gzip -f ", uncompressed_name))
 }
 
-
+#' plot continuous feature on a tSNE
 plot_feature <- function(seurat_obj,
                          ident = NULL,
                          gene = NULL,
@@ -180,6 +180,7 @@ standardize_rows <- function(xmat,
 compare_umis <- function(path_to_ctrl,
                          path_to_test,
                          return_summary = F,
+                         strip_10x_suffix = T,
                          cells_exclude = "Cell_unmatched"){
   
   ## umi seqs should be produced by ./get_molecule_info
@@ -193,11 +194,17 @@ compare_umis <- function(path_to_ctrl,
                             col_names = c("barcode_10x", 
                                           "umi_molecule", 
                                           "count")) %>% 
-    filter(!barcode_10x %in% cells_exclude)
+    filter(!barcode_10x %in% cells_exclude) 
   
   umi_seqs <- full_join(ctrl_umi_seqs, 
                         test_umi_seqs, 
                         by = c("barcode_10x", "umi_molecule"))
+  if (strip_10x_suffix) {
+    umi_seqs <- mutate(umi_seqs,
+                       barcode_10x = str_replace(barcode_10x,
+                                                 "-[0-9]$", 
+                                                 ""))
+  }
   
   if (return_summary) {
     umi_seqs %>% 
@@ -257,20 +264,20 @@ norm_libsize <- function(sc_obj){
   sc_obj
 }
 
-add_metadata <- function(sc_obj, dat){
+add_metadata <- function(sc_obj, dat, by_col = "barcode_10x"){
   if (is.vector(dat)){
     new_colname <- deparse(substitute(dat))
     df <- data_frame(!!new_colname := dat)
     df[[new_colname]] <- dat
-    df[["cell_id"]] <- names(dat)
+    df[[by_col]] <- names(dat)
     sc_obj$meta_dat <- left_join(sc_obj$meta_dat,
                                  df,
-                                 by = "cell_id")
+                                 by = by_col)
     
   } else if (is.data.frame(dat)) {
     sc_obj$meta_dat <- left_join(sc_obj$meta_dat,
                                  dat,
-                                 by = "cell_id")
+                                 by = by_col)
   }
   sc_obj
 }
@@ -300,12 +307,15 @@ compute_summaries <- function(sc_obj){
   sc_obj
 }
 
-umis_to_genes <- function(umipath, cells_to_exclude = c("Cell_unmatched")){
+umis_to_genes <- function(umipath, 
+                          strip_10x_suffix = T, 
+                          cells_to_exclude = c("Cell_unmatched")){
   umis <- read_tsv(umipath,
                    col_names = c("barcode_10x", 
                                  "umi_molecule", 
                                  "count")) %>% 
-    filter(barcode_10x != cells_to_exclude)
+    filter(barcode_10x != cells_to_exclude) %>% 
+    mutate(barcode_10x = str_replace(barcode_10x, "-[0-9]$", ""))
   
   mol_fields <- str_count(umis$umi_molecule[1], "::")
   
