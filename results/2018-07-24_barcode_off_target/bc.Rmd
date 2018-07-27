@@ -48,13 +48,17 @@ bc_metadat <- read_tsv(file.path(lib_data_dir,
                                  "original", 
                                  "barcodes_from_10x_run.txt"),
                        col_names = c("cell_id", "barcode_10x")) 
+cell_names = c(
+  "GACGTTAGTGCCTGTG" = "Mouse Cell",
+  "CTGATCCCATGACGGA" = "Human Cell")
 
 plot_distances <- function(cells,
                            libs,
                            reflib,
                            resampled_lib,
                            lib_data_dir,
-                           bc_metadat) {
+                           bc_metadat,
+                           cell_names) {
   
   bc_counts <- map(libs,
                    ~read_tsv(file.path(lib_data_dir,
@@ -88,7 +92,7 @@ plot_distances <- function(cells,
   }) %>% 
     tbl_df()
   
-  h_res <-  map_dfr(cells, function(x){
+  h_res <- map_dfr(cells, function(x){
     res <- data_frame(hdist = get_hamming(x, unique(bc_counts$barcode)),
                       probe = x,
                       barcode = unique(bc_counts$barcode))
@@ -112,51 +116,80 @@ plot_distances <- function(cells,
   enriched_bcs <- cellbc_norm_dist %>% 
     filter(bc_enrichment > 1)
   
-  sw_plot <- ggplot(cellbc_norm_dist,
-                    aes(sw_score,
-                        bc_enrichment)) +
-    geom_point(aes(color = resampling_probe)) +
-    scale_color_manual(values = color_palette) + 
-    geom_text_repel(data = enriched_bcs,
-                    aes(label = barcode),
-                    force = 10, 
-                    arrow = arrow(length = unit(0.03, "npc"), 
-                                  type = "closed", ends = "first"),
-                    size = 2) +
-    labs(x = "Alignment Score",
-         y = expression(paste("Barcode enrichment log"[2]))) +
-    theme(legend.pos = "none")
+  sw_plots <- map(cells,
+                  function(cell){
+                    tmp <- filter(cellbc_norm_dist,
+                                  probe == cell,
+                                  !(resampling_probe == T & barcode != cell))
+                    
+                    enriched_bcs <- tmp %>% 
+                      filter(bc_enrichment > 1)
+                    
+                    ggplot(tmp,
+                           aes(sw_score,
+                               bc_enrichment)) +
+                      geom_point(aes(color = resampling_probe)) +
+                      scale_color_manual(values = color_palette) + 
+                      facet_wrap(~probe, labeller = as_labeller(cell_names)) + 
+                      geom_text_repel(data = enriched_bcs,
+                                      aes(label = barcode),
+                                      force = 10, 
+                                      arrow = arrow(length = unit(0.03, "npc"), 
+                                                    type = "closed", ends = "first"),
+                                      size = 2) +
+                      labs(x = "Alignment Score",
+                           y = expression(paste("Barcode enrichment log"[2]))) +
+                      theme(legend.pos = "none")
+                  })
+  sw_plot <- plot_grid(plotlist = sw_plots, nrow = 1)
   
-  hdist_plot <- ggplot(cellbc_norm_dist,
-                       aes(hdist,
-                           bc_enrichment)) +
-    geom_point(aes(color = resampling_probe)) +
-    scale_color_manual(values = color_palette) + 
-    geom_text_repel(data = enriched_bcs,
-                    aes(label = barcode),
-                    force = 10, 
-                    arrow = arrow(length = unit(0.03, "npc"), 
-                                  type = "closed", ends = "first"),
-                    size = 2) +
-    labs(x = "Hamming Distance",
-         y = expression(paste("Barcode enrichment log"[2]))) +
-    theme(legend.pos = "none")
+  hdist_plots <- map(cells,
+                     function(cell){
+                       tmp <- filter(cellbc_norm_dist,
+                                     probe == cell,
+                                     !(resampling_probe == T & barcode != cell))
+                       
+                       enriched_bcs <- tmp %>% 
+                         filter(bc_enrichment > 1)
+                       
+                       ggplot(tmp,
+                              aes(hdist,
+                                  bc_enrichment)) +
+                         geom_point(aes(color = resampling_probe)) +
+                         scale_color_manual(values = color_palette) + 
+                         facet_wrap(~probe, labeller = as_labeller(cell_names)) + 
+                         geom_text_repel(data = enriched_bcs,
+                                         aes(label = barcode),
+                                         force = 10, 
+                                         arrow = arrow(length = unit(0.03, "npc"), 
+                                                       type = "closed", ends = "first"),
+                                         size = 2) +
+                         labs(x = "Hamming Distance",
+                              y = expression(paste("Barcode enrichment log"[2]))) +
+                         theme(legend.pos = "none")
+                     })
+  hdist_plot <- plot_grid(plotlist = hdist_plots, nrow = 1)
   
   plt <- plot_grid(sw_plot, hdist_plot, ncol = 1)
-  save_plot(str_c(resampled_lib,"_bc_dist.pdf"),
-            plt, 
-            nrow = 2, 
-            ncol = 1)
   plt
-  
 }
 
-plot_distances(cells,
+plt <- plot_distances(cells,
                libs,
                reflib,
                resampled_lib,
                lib_data_dir,
-               bc_metadat)
+               bc_metadat,
+               cell_names)
+
+save_plot(str_c(resampled_lib, "_bc_dist.pdf"),
+          plt, 
+          nrow = 2, 
+          ncol = 1,
+          base_height = 4,
+          base_aspect_ratio = 2)
+plt
+  
 ```
 
 ## PBMC Mk cell pulldown
@@ -166,6 +199,12 @@ cells <- c("TGCGCAGCAGGTCGTC",
            "ACTTGTTAGGACCACA",
            "CCATTCGTCCCTGACT",
            "TGTCCCAGTAAACACA")
+
+cell_names = c(
+  "TGCGCAGCAGGTCGTC" = "MK-cell-1",
+  "ACTTGTTAGGACCACA" = "MK-cell-2",
+  "CCATTCGTCCCTGACT" = "MK-cell-3",
+  "TGTCCCAGTAAACACA" = "MK-cell-4")
 
 libs <- c(
   "kirkpatrick",
@@ -188,11 +227,21 @@ reflib <- "kirkpatrick"
 ## reference resampled lib for resampled vs control plots
 resampled_lib <- "mkcell_pulldown"
 
-plot_distances(cells,
+plt <- plot_distances(cells,
                libs,
                reflib,
                resampled_lib,
                lib_data_dir,
-               bc_metadat)
+               bc_metadat,
+               cell_names)
+
+
+save_plot(str_c(resampled_lib, "_bc_dist.pdf"),
+          plt, 
+          nrow = 2, 
+          ncol = 1,
+          base_height = 4,
+          base_aspect_ratio = 4)
+plt
 ```
 

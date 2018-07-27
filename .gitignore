@@ -26,3 +26,4 @@ logs/
 results/*/*.txt
 .Rproj.user
 .Rhistory
+*.html
