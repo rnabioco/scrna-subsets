@@ -4,7 +4,7 @@ data/*
 logs/*
 *.xlsx
 *.png
-pipeline/.snakemake/*
+pipeline/.snakemake*
 *.swp
 *.pyc
 .err
@@ -15,6 +15,12 @@ pipeline/.snakemake/*
 *rgtag_bam
 *append_read_name
 *get_molecule_info
+*extract_reads
+*get_molecule_position
+*.snakemake
+*_site
+*.pptx
+bin/htslib*
 logs/
 *.pdf
 results/*/*.txt
