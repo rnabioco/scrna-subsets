@@ -228,12 +228,12 @@ reflib <- "kirkpatrick"
 resampled_lib <- "mkcell_pulldown"
 
 plt <- plot_distances(cells,
-               libs,
-               reflib,
-               resampled_lib,
-               lib_data_dir,
-               bc_metadat,
-               cell_names)
+                      libs,
+                      reflib,
+                      resampled_lib,
+                      lib_data_dir,
+                      bc_metadat,
+                      cell_names)
 
 
 save_plot(str_c(resampled_lib, "_bc_dist.pdf"),

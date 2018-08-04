@@ -1,7 +1,7 @@
 ---
 title: "tcr resampling"
 author: "Kent Riemondy RBI"
-date: "7/18/2018"
+date: "`r Sys.Date()`"
 output: html_document
 ---
 
@@ -12,54 +12,62 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(rjson)
 library(tidyverse)
+source("../../R/globals.R")
 ```
 
+# Examine TCR resampling metrics
 
 ```{r}
-
-jd <- paste(readLines("/Users/kriemo/Projects/10x_data/tcr/results/2018-05-18_jurkat_raji/VDJ_Tcell/outs/consensus_annotations.json"), collapse = "")
-dat <- fromJSON(jd)
-
-annots <- map(dat, ~.x[c("contig_name", "start_codon_pos")]) %>% 
-  bind_rows(.)
-
-contig_annots <- map(dat, ~.x$annotations) %>% 
-  map(., ~bind_rows(unlist(.))) %>% 
-  bind_rows(.)
-
-annots <- bind_cols(annots, contig_annots)
-```
-
-```{r}
-dat <- fromJSON(paste(readLines("/Users/kriemo/Projects/10x_data/tcr/results/2018-05-18_jurkat_raji/VDJ_Tcell/outs/all_contig_annotations.json"), collapse = ""))
-
-
-```
-
-
-```{r}
-b_10x <- read_csv("~/Projects/10x_data/tcr/results/2018-06-28_pbmc/vdj_v1_pbmc_b_all_contig_annotations.csv")
-t_10x <- read_csv("~/Projects/10x_data/tcr/results/2018-06-28_pbmc/vdj_v1_pbmc_t_all_contig_annotations.csv")
-unsort_b <- read_csv("~/Projects/10x_data/tcr/results/2018-06-28_pbmc/VDJ_denovo_Hesselberth_Unsorted_Bcell_05312018/outs/all_contig_annotations.csv")
-unsort_t <- read_csv("~/Projects/10x_data/tcr/results/2018-06-28_pbmc/VDJ_denovo_Hesselberth_Unsorted_Tcell_05312018/outs/all_contig_annotations.csv")
-sort_b <-read_csv("~/Projects/10x_data/tcr/results/2018-06-28_pbmc/VDJ_denovo_Hesselberth_CD_3_4_Bcell_05312018//outs/all_contig_annotations.csv")
-sort_t <-read_csv("~/Projects/10x_data/tcr/results/2018-06-28_pbmc/VDJ_denovo_Hesselberth_CD_3_4_Tcell_05312018//outs/all_contig_annotations.csv")
-
-dfs <- list(
-  bcells_10x = b_10x,
-  tcells_10x = t_10x,
-  bcells_unsorted = unsort_b,
-  tcells_unsorted = unsort_t,
-  bcells_sorted = sort_b,
-  tcells_sorted = sort_t
+barcodes_10x <- c(
+  "AAGTCTGAGAAACCGC-1",
+  "CTAGCCTGTCTAGCGC-1"
 )
-df <- bind_rows(dfs, .id = "library")
-
-df %>% 
-  filter(high_confidence == "True",
-         is_cell == "True") %>% 
-  ggplot(., aes(library, length)) +
-  geom_jitter() +
-  geom_violin()
 ```
+
+```{r}
+fns <- dir(file.path(data_dir,
+                     "tcr_resampling",
+                     "cellranger"),
+           recursive = T,
+           full.names = T,
+           pattern = "all_contig_annotations.csv$")
+names(fns) <- c("original", "resampled")
+annotations <- map_dfr(fns, read_csv, .id = "library")
+
+annotations <- filter(annotations, barcode %in% barcodes_10x)
+
+plot_dat <- filter(annotations,
+                   chain != "Multi",
+                   cdr3 == "CASSFSTCSANYGYTF" | 
+                     cdr3 == "CAVSDLEPNSSASKIIF",
+                   high_confidence == "True") 
+
+len_plt <- ggplot(plot_dat,
+                  aes(barcode, length)) +
+  geom_point(aes(color = library)) +
+  facet_wrap(~chain) +
+  scale_x_discrete(labels = c("Cell-1", "Cell-2")) +
+  scale_y_continuous(labels = scales::comma) + 
+  scale_color_manual(values = color_palette,
+                     name = "") +
+  labs(y = "Assembled Contig Length",
+       x = "") + 
+  theme(legend.position = "none")
+
+read_plt <- ggplot(plot_dat,
+                   aes(barcode, reads)) +
+  geom_point(aes(color = library)) +
+  facet_wrap(~chain) +
+  scale_x_discrete(labels = c("Cell-1", "Cell-2")) +
+  scale_y_continuous(labels = scales::comma) + 
+  scale_color_manual(values = color_palette,
+                     name = "") +
+  labs(y = "# of Reads",
+       x = "") + 
+  theme(legend.position = "none")
+
+plt <- plot_grid(len_plt, read_plt)
+save_plot("contig_length_and_reads.pdf", plt, 
+          nrow = 1, ncol = 2)
+plt
 ```

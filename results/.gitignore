@@ -1,0 +1,10 @@
+*.gz
+*.fast*
+*.fa*
+*.bam*
+*.sam*
+*.txt*
+*.bt2
+*.rds
+*.tsv
+*_cache*
