@@ -82,10 +82,10 @@ lib_names = c(
 
 ## pretty names for cells
 cell_names = c(
-  "TGCGCAGCAGGTCGTC" = "MK-cell-1",
-  "ACTTGTTAGGACCACA" = "MK-cell-2",
-  "CCATTCGTCCCTGACT" = "MK-cell-3",
-  "TGTCCCAGTAAACACA" = "MK-cell-4")
+  "TGCGCAGCAGGTCGTC-1" = "MK-cell-1",
+  "ACTTGTTAGGACCACA-1" = "MK-cell-2",
+  "CCATTCGTCCCTGACT-1" = "MK-cell-3",
+  "TGTCCCAGTAAACACA-1" = "MK-cell-4")
 
 sc_objs <- readRDS("processed_data.rds")
 
@@ -116,11 +116,24 @@ plt <- ggplot(sc_metadat, aes(total_umis, cDNA_duplication)) +
        y = "Sequencing saturation") + 
   scale_x_log10(labels = scales::comma) +
   scale_color_manual(values = color_palette) +
-  guides(colour = guide_legend(override.aes = list(size = 5))) + 
+  geom_text_repel(data = filter(sc_metadat, resampled),
+                                     aes(label = ".",
+                                         color = resampled),
+                                     size = 0,
+                                     force = 10,
+                                     min.segment.length = 0,
+                                     point.padding = 1.0,
+                                     arrow = arrow(length = unit(0.3,
+                                                                 "line"), 
+                                                   angle = 35,
+                                                   type = "open", 
+                                                   ends = "last")
+                     ) +
+ # guides(colour = guide_legend(override.aes = list(size = 5))) + 
   facet_wrap(~library,
              labeller = labeller(library = lib_names)) +
   theme_cowplot(font_size = 16, line_size = 1)  +
-  theme(legend.position = "top",
+  theme(legend.position = "none",
         plot.margin = unit(c(5.5, 20.5, 5.5, 5.5), 
                            "points")) 
 
@@ -261,25 +274,44 @@ umi <- ggplot(filter(resampled_metadat, library %in% resampled_libs),
 umi
 ggsave("umi_ratio_per_cell.pdf", umi, width =5, height = 5)
 
-umi_plots <- map(split(resampled_metadat, resampled_metadat$library),
-  function(x){
-    ggplot(x, 
-       aes(og_total_umis, norm_umi_proportion, colour = resampled)) + 
-  geom_point(size = 0.5) + 
-  geom_hline(aes(yintercept = 0), 
-             linetype ="dashed", 
-             color = "darkgrey") + 
-  labs(x = "Abundance in original library\n (UMIs)", 
-       y = expression(paste( "Log"[2], " UMIs ", 
-                             frac("resampled", "original")))) +
-  scale_x_continuous(labels = scales::comma) +      
-  scale_colour_manual(name = "resampled:", values = color_palette) +
-  guides(colour = guide_legend(override.aes = list(size = 5))) + 
-  theme_cowplot(font_size = 16, line_size = 1) +
-  theme(legend.position = "top",
-        legend.text = element_text(size = 12),
-        plot.margin = unit(c(5.5, 20.5, 5.5, 5.5),
-                           "points"))})
+umi_plots <- map(split(resampled_metadat, 
+                       resampled_metadat$library),
+                 function(x){
+                   set.seed(42)
+                   ggplot(x, 
+                          aes(og_total_umis, 
+                              norm_umi_proportion, 
+                              colour = resampled)) + 
+                     geom_point(size = 0.5) + 
+                     geom_hline(aes(yintercept = 0), 
+                                linetype ="dashed", 
+                                color = "darkgrey") + 
+                     geom_text_repel(data = filter(x, resampled),
+                                     aes(label = "."),
+                                     size = 0,
+                                     force = 10,
+                                     min.segment.length = 0,
+                                     point.padding = 1.0,
+                                     arrow = arrow(length = unit(0.3,
+                                                                 "line"), 
+                                                   angle = 35,
+                                                   type = "open", 
+                                                   ends = "last")
+                     ) + 
+                     labs(x = "Abundance in original library\n (UMIs)", 
+                          
+                          y = expression(paste( "Log"[2], " UMIs ", 
+                                                frac("resampled",
+                                                     "original")))) +
+                     scale_x_continuous(labels = scales::comma) +      
+                     scale_colour_manual(name = "resampled:", 
+                                         values = color_palette) +
+                    # guides(colour = guide_legend(override.aes = list(size = 5))) + 
+                     theme_cowplot(font_size = 16, line_size = 1) +
+                     theme(legend.position = "none",
+                           # legend.text = element_text(size = 12),
+                           plot.margin = unit(c(5.5, 20.5, 5.5, 5.5),
+                                              "points"))})
 
 plt <- plot_grid(plotlist = umi_plots, nrow = 1)
 save_plot("umi_ratio_MA.pdf", plt)
@@ -492,7 +524,7 @@ plt <- ggplot(plt_dat,
   labs(y = "# of genes") + 
   scale_x_discrete(labels = cell_names) + 
   scale_y_continuous(labels = scales::comma) + 
-  scale_fill_manual(values = palette_okabeito[4:6], name = "") +
+  scale_fill_manual(values = palette_okabeito, name = "") +
   guides(fill = guide_legend(override.aes = list(size = 0.25))) +
   theme(axis.title.x = element_blank(),
         axis.text.x = element_text(angle = 45,

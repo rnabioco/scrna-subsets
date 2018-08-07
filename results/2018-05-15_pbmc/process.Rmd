@@ -300,9 +300,32 @@ resampled_metadat <- map(sc_objs, ~.x$meta_dat) %>%
 ```{r save_obs}
 saveRDS(sc_objs, "processed_data.rds")
 ```
+
+## Correlation analysis
+
+```{r clustify}
+library(clustifyR)
+
+resampled_cell_expr <- sc_objs$mkcell_pulldown$norm_umi[, cells$mkcell_pulldown]
+
+a <- run_cor(sc_objs$kirkpatrick$norm_umi,
+        data_frame(cell_name = colnames(sc_objs$kirkpatrick$norm_umi),
+                   cluster = sample(1:10, 
+               ncol(sc_objs$kirkpatrick$norm_umi),
+               replace = T)),
+        sc_objs$mkcell_pulldown$norm_umi,
+        rownames(sc_objs$mkcell_pulldown$norm_umi),
+        cluster_col = "cell_name",
+        per_cell = T,
+        compute_method = corr_coef)
+
+Heatmap(a, show_column_names = F, show_column_dend = F,
+        show_row_names = F, show_row_dend = F)
+```
+
 ## tSNE analysis
 
-### original library tSNE
+  ### original library tSNE
 
 ```{r tsne, results='hide'}
 library(Seurat)

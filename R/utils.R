@@ -53,6 +53,3 @@ decompress_sequences <- function(seqs, lens){
   }
   result
 }
-
-
-

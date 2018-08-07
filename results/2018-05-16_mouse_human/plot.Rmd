@@ -86,8 +86,8 @@ lib_names = c(
 
 ## pretty names for cells
 cell_names = c(
-  "GACGTTAGTGCCTGTG" = "Mouse Cell",
-  "CTGATCCCATGACGGA" = "Human Cell")
+  "GACGTTAGTGCCTGTG-1" = "Mouse Cell",
+  "CTGATCCCATGACGGA-1" = "Human Cell")
 
 sc_objs <- readRDS("processed_data.rds")
 
@@ -105,10 +105,24 @@ resampled_metadat <- filter(sc_metadat,
 
 ## plot cDNA duplication rate
 
-```{r cDNA_duplication_rate, fig.cap="Note the high level of sequencing saturation (0 = no-duplication, 1 = all duplicates) in the original library. Also note that the libraries tend to have higher saturatioin rates, after subsampling."}
+```{r cDNA_duplication_rate, fig.cap="Note the high level of sequencing saturation (0 = no-duplication, 1 = all duplicates) in the original library. Also note that the libraries tend to have higher saturation rates, after subsampling."}
 
 plt <- ggplot(sc_metadat, aes(total_umis, cDNA_duplication)) +
   geom_point(aes(color = resampled), size = 1) +
+  geom_text_repel(data = filter(sc_metadat, resampled),
+                  aes(label = ".",
+                      color = resampled),
+                  size = 0,
+                  force = 10,
+                  min.segment.length = 0,
+                  point.padding = 1.0,
+                  seed = 42,
+                  arrow = arrow(length = unit(0.3,
+                                              "line"), 
+                                angle = 35,
+                                type = "open", 
+                                ends = "last")
+  ) +
   labs(x = expression(paste("# of UMIs")),
        y = "Sequencing saturation") + 
   scale_x_log10(labels = scales::comma) +
@@ -232,22 +246,37 @@ ggsave("reads_umi_ratio_per_barcode_normalized.pdf", width = 8, height = 5)
 
 
 umi_plots <- map(split(resampled_metadat, resampled_metadat$library),
-  function(x){
-    ggplot(x, 
-       aes(og_total_umis, norm_umi_proportion, colour = resampled)) + 
-  geom_point(size = 0.5) + 
-  geom_hline(aes(yintercept = 0), 
-             linetype ="dashed", 
-             color = "darkgrey") + 
-  labs(x = "Abundance in original library\n (UMIs)", 
-       y = expression(paste( "Log"[2], " UMIs ", 
-                             frac("resampled", "original")))) +
-  scale_x_continuous(labels = scales::comma) +      
-  scale_colour_manual(name = "resampled:", values = color_palette) +
- # facet_wrap(~library, nrow = 1) + 
-  theme_cowplot(font_size = 16, line_size = 1) +
-  theme(legend.position = "none",
-        legend.text = element_text(size = 12))})
+                 function(x){
+                   ggplot(x, 
+                          aes(og_total_umis, norm_umi_proportion, 
+                              colour = resampled)) + 
+                     geom_point(size = 0.5) + 
+                     geom_hline(aes(yintercept = 0), 
+                                linetype ="dashed", 
+                                color = "darkgrey") + 
+                     geom_text_repel(data = filter(x, resampled),
+                                     aes(label = ".",
+                                         color = resampled),
+                                     size = 0,
+                                     force = 10,
+                                     min.segment.length = 0,
+                                     point.padding = 1.0,
+                                     seed = 2,
+                                     arrow = arrow(length = unit(0.3,
+                                                                 "line"), 
+                                                   angle = 35,
+                                                   type = "open", 
+                                                   ends = "last")
+                     ) + 
+                     labs(x = "Abundance in original library\n (UMIs)", 
+                          y = expression(paste( "Log"[2], " UMIs ", 
+                                                frac("resampled", "original")))) +
+                     scale_x_continuous(labels = scales::comma) +      
+                     scale_colour_manual(name = "resampled:", values = color_palette) +
+                     # facet_wrap(~library, nrow = 1) + 
+                     theme_cowplot(font_size = 16, line_size = 1) +
+                     theme(legend.position = "none",
+                           legend.text = element_text(size = 12))})
 
 plt <- plot_grid(plotlist = umi_plots, nrow = 1)
 save_plot("umi_ratio_MA.pdf", plt)
@@ -391,25 +420,40 @@ save_plot("read_scatterplot_human_mouse.pdf",
           base_width = 4, base_height = 4)
 
 umi_plots <- map(split(sc_metadat, sc_metadat$library),
-  function(x){
-  ggplot(x,
-       aes(human_umis, 
-           mouse_umis, 
-           colour = resampled)) +
-  geom_point(size = 0.5) + 
-  facet_wrap(~library, nrow = 1, 
-             scales = "free",
-             labeller = labeller(library = lib_names)) + 
-  xlab("Human UMIs") +
-  ylab("Mouse UMIs") +
-  scale_x_continuous(labels = scales::comma) + 
-  scale_y_continuous(labels = scales::comma) +
-  scale_colour_manual(name = "resampled:",
-                      values = color_palette) +
-  theme_cowplot(font_size = 16, line_size = 1) +
-  theme(legend.position = "none",
-        legend.text = element_text(size = 12))
-  })
+                 function(x){
+                   ggplot(x,
+                          aes(human_umis, 
+                              mouse_umis, 
+                              colour = resampled)) +
+                     geom_point(size = 0.5) + 
+                     geom_text_repel(data = filter(x, resampled),
+                                     aes(label = ".",
+                                         color = resampled),
+                                     size = 0,
+                                     force = 10,
+                                     min.segment.length = 0,
+                                     point.padding = 1.15,
+                                     arrow = arrow(length = unit(0.3,
+                                                                 "line"), 
+                                                   angle = 35,
+                                                   type = "open", 
+                                                   ends = "last"
+                                                  ),
+                                     seed = 2
+                     ) + 
+                     facet_wrap(~library, nrow = 1, 
+                                scales = "free",
+                                labeller = labeller(library = lib_names)) + 
+                     xlab("Human UMIs") +
+                     ylab("Mouse UMIs") +
+                     scale_x_continuous(labels = scales::comma) + 
+                     scale_y_continuous(labels = scales::comma) +
+                     scale_colour_manual(name = "resampled:",
+                                         values = color_palette) +
+                     theme_cowplot(font_size = 16, line_size = 1) +
+                     theme(legend.position = "none",
+                           legend.text = element_text(size = 12))
+                 })
 plt <- plot_grid(plotlist = umi_plots,
                  nrow = 1)
 save_plot("umi_scatterplot_human_mouse.pdf", 
@@ -570,15 +614,14 @@ plt <- ggplot(plt_dat,
   labs(y = "# of genes") + 
   scale_x_discrete(labels = cell_names) + 
   scale_y_continuous(labels = scales::comma) + 
-  scale_fill_brewer(palette = "Set1", name = "") +
-  guides(fill = guide_legend(override.aes = list(size = 0.25))) +
+  scale_fill_manual(values = palette_okabeito, name = "") +
   theme(axis.title.x = element_blank(),
         axis.text.x = element_text(angle = 45,
                                    hjust = 1),
         legend.position = "top",
         plot.margin = unit(c(5.5, 50.5, 5.5, 5.5), 
-                           "points"))
-      #  legend.key.size = unit(0.25, "pt")) 
+                           "points"),
+        legend.key.size = unit(10, "pt")) 
 
 save_plot("new_genes_species_specific_barplot.pdf", plt, 
           base_width = 4, base_height = 5) 
