@@ -1,7 +1,7 @@
 ---
 title: "process data from mouse human pulldown"
 author: "Kent Riemondy RBI"
-date: '`R Sys.Date()`'
+date: '`r Sys.Date()`'
 output:
   html_document:
     toc: true
@@ -57,12 +57,15 @@ lib_data_dir <- file.path(data_dir,
                           "lna_cell",
                           "mh_mix")
 
+# note that mixed species barcode files from 10x may have duplicated
+# barcodes due to doublets. thus uniqueify the bc file to avoid duplicate cell # ids
 bc_metadat <- read_tsv(file.path(lib_data_dir, 
                                  "original_10x", 
                                  "fastq",
                                  "original", 
                                  "barcodes_from_10x_run.txt"),
-                       col_names = c("cell_id", "barcode_10x")) 
+                       col_names = c("cell_id", "barcode_10x")) %>% 
+  unique()
 
 ## original library to compare against
 reflib <- "original_10x"
@@ -79,8 +82,8 @@ lib_names = c(
 
 ## pretty names for cells
 cell_names = c(
-  "GACGTTAGTGCCTGTG" = "Mouse Cell",
-  "CTGATCCCATGACGGA" = "Human Cell")
+  "GACGTTAGTGCCTGTG-1" = "Mouse Cell",
+  "CTGATCCCATGACGGA-1" = "Human Cell")
 
 ```
 

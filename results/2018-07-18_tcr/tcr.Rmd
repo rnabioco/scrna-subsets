@@ -66,8 +66,20 @@ read_plt <- ggplot(plot_dat,
        x = "") + 
   theme(legend.position = "none")
 
-plt <- plot_grid(len_plt, read_plt)
+umi_plt <- ggplot(plot_dat,
+                   aes(barcode, umis)) +
+  geom_point(aes(color = library)) +
+  facet_wrap(~chain) +
+  scale_x_discrete(labels = c("Cell-1", "Cell-2")) +
+  scale_y_continuous(labels = scales::comma) + 
+  scale_color_manual(values = color_palette,
+                     name = "") +
+  labs(y = "# of UMIs",
+       x = "") + 
+  theme(legend.position = "none")
+
+plt <- plot_grid(len_plt, read_plt, umi_plt, nrow = 1)
 save_plot("contig_length_and_reads.pdf", plt, 
-          nrow = 1, ncol = 2)
+          nrow = 1, ncol = 3)
 plt
 ```

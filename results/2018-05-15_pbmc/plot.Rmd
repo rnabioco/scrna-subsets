@@ -1,7 +1,7 @@
 ---
 title: "plots for megakaryocyte pulldown"
 author: "Kent Riemondy RBI"
-date: '`R Sys.Date()`'
+date: '`r Sys.Date()`'
 output:
   html_document:
     toc: true
@@ -33,6 +33,7 @@ This RMarkdown document will produce the following figures:
 knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_chunk$set(warning = FALSE)
 knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(cache = TRUE)
 ```
 
 ```{r, message=F, warning=F, echo=F}
@@ -886,7 +887,54 @@ plt <- ggplot(umis_recovered,
                                     margin = margin(0,0.2,0,0.2, "cm"))) +
   scale_color_manual(values = color_palette)
 
-plt 
+plt
+
+targeted <- umis_recovered %>% 
+  dplyr::filter(resampled) %>% 
+  mutate(cell_id = str_c(barcode_10x, "-1"))
+
+plt_dat <- umis_recovered %>% 
+  dplyr::filter(!resampled) %>% 
+  group_by(class) %>% 
+  summarize(count = mean(count)) %>% 
+  mutate(cell_id = "Not targeted\nbarcodes\n(mean)") %>% 
+  bind_rows(targeted, .) %>% 
+  mutate(class = ifelse(class == "new_umis",
+                        "Newly\ndetected\nUMIs",
+                        ifelse(class == "shared_umis",
+                               "Previously\ndetected\nUMIs",
+                               ifelse(class == "not_detected_umis",
+                                      "Previously\ndetected\nUMIs\nnot recovered",
+                                      NA))))
+
+plt_dat <- mutate(plt_dat, 
+                  cell_id = cell_names[cell_id],
+                  cell_id = ifelse(is.na(cell_id),
+                                   "Not targeted\nbarcodes\n(mean)",
+                                   cell_id),
+                  cell_id = factor(cell_id, 
+                                   levels = c(
+                                     cell_names,
+                                     "Not targeted\nbarcodes\n(mean)"
+                                   )))
+plt <- ggplot(plt_dat, 
+       aes(cell_id, count)) +
+  geom_bar(aes(fill = class),
+           stat = "identity") +
+  labs(y = "# of UMIs") + 
+  scale_y_continuous(labels = scales::comma) + 
+  scale_fill_manual(values = palette_okabeito, name = "") +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 45,
+                                   hjust = 1),
+        legend.position = "top",
+        plot.margin = unit(c(5.5, 50.5, 5.5, 5.5), 
+                           "points"),
+        legend.key.size = unit(10, "pt")) 
+
+save_plot("new_umis_barplot.pdf", plt,
+          base_width = 4, base_height = 5)
+
 ```
 
 ```{r}
@@ -1364,7 +1412,7 @@ plot_ma <- function(df, markers){
     labs(x = expression(paste("Abundance (log"[2], ")")),
          y = expression(paste(frac("resampled","Original"), 
                               " (log"[2], ")"))) +
-    scale_color_brewer(palette = "Set1", name = "") +
+    scale_color_manual(palette = color_palette, name = "") +
     guides(colour = guide_legend(override.aes = list(size = 4))) + 
     theme(legend.position = "top")
   plt
@@ -1385,7 +1433,7 @@ To determine if a subset of the new genes detected in the 4 cells are actually m
 
 #### Shared marker genes
 
-```{r}
+```{r, eval = F}
 sc_objs <- readRDS("processed_data.rds")
 mk_10x_markers <- read_tsv(file.path(results_dir, 
                                       "2018-06-01",
@@ -1478,24 +1526,26 @@ summary_df <- map(all_genes,
 
 summary_df <- map(summary_df, bind_rows, .id = "cell") %>% 
   bind_rows(., .id = "library") %>% 
-  mutate(cell = factor(cell, 
-                       levels = cells[[resampled_lib]]))
+  mutate(
+    cell = str_c(cell, "-1"),
+    cell = cell_names[cell],
+    cell = factor(cell, levels = cell_names))
 
 plt <- ggplot(summary_df,
        aes(cell, n_markers)) +
-  geom_bar(aes(fill = library), 
+  geom_point(aes(color = library), 
            stat = "identity",
-           position = "dodge") +
-  scale_x_discrete(labels = cell_names) + 
-  scale_fill_brewer(palette = "Set1",
-                    name = "",
+           position = position_dodge(width = 0.25)) +
+  scale_color_manual(values = color_palette,
+                     name = "",
                     labels = lib_names) +
+  ylim(c(0, max(summary_df$n_markers))) + 
   labs(y = "# of Megakaryocyte\nmarker genes") +
   guides(fill = guide_legend(nrow = 2)) + 
   theme(axis.text.x = element_text(angle = 45,
                                    hjust = 1),
         axis.title.x = element_blank(),
-        legend.pos = "top")
+        legend.pos = "none")
   
 save_plot("nmarkers_kirkpatrick_pbmcs.pdf", 
           plt,
@@ -1682,12 +1732,14 @@ summary_dat <- mutate(summary_dat,
                       n_mks = as.integer(n_mks) + 4) ## to account for resampled cells
 plt <- ggplot(summary_dat, 
        aes(n_mks, n)) +
-  geom_bar(aes(fill = expt), 
-           stat = "identity", position = "dodge") +
-  scale_fill_brewer(palette = "Set1", name = "") +
+  geom_point(aes(color = expt), 
+           stat = "identity", 
+           position = position_dodge(width = 1)) +
+  scale_color_manual(values = color_palette, name = "") +
+  ylim(c(0, max(summary_dat$n))) + 
   labs(x = "# of Megakaryocytes in Cluster",
        y = "# of Megakaryocyte\nmarkers discovered") +
-  theme(legend.pos = "top") +
+  theme(legend.pos = "none") +
   guides(fill = guide_legend(nrow = 2))
 
 save_plot("resampling_marker_discovery_sensitivity.pdf", 
@@ -1721,4 +1773,45 @@ sub_obj <- FindClusters(sub_obj,
 plot_feature(sub_obj, gene = "GNG11", pt.alpha = 1)
 TSNEPlot(sub_obj, group.by = "resampled")
 TSNEPlot(sub_obj, group.by = "res.1.2")
+```
+
+
+## Correlation analysis
+
+```{r clustify}
+library(clustifyR)
+library(ComplexHeatmap)
+sc_objs <- readRDS("processed_data.rds")
+
+sc_metadat <- map(sc_objs, ~.x$meta_dat) %>% 
+  bind_rows(.id = "library") %>% 
+  mutate(library = factor(library, levels = libs)) %>% 
+  arrange(resampled)
+
+resampled_metadat <- filter(sc_metadat,
+                             library != reflib) %>% 
+  mutate(library = factor(library, 
+                          levels = resampled_libs))
+
+resampled_cell_expr <- sc_objs$mkcell_pulldown$norm_umi[,
+                                                        cells$mkcell_pulldown]
+
+og_mat <- sc_objs$kirkpatrick$norm_umi
+rs_mat <- sc_objs$mkcell_pulldown$norm_umi
+shared_genes <- intersect(rownames(rs_mat), rownames(og_mat))
+
+cor_mat <- cor(as.matrix(rs_mat[shared_genes, ]), 
+    as.matrix(og_mat[shared_genes, ]))
+
+Heatmap(cor_mat[, colnames(cor_mat) %in% cells$mkcell_pulldown], 
+        show_column_names = F, 
+        show_column_dend = F,
+        show_row_names = F, 
+        show_row_dend = F)
+
+Heatmap(cor_mat[, 1:10], 
+        show_column_names = F, 
+        show_column_dend = F,
+        show_row_names = F, 
+        show_row_dend = F)
 ```

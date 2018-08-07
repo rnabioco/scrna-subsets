@@ -36,9 +36,9 @@ First designate the libraries and the cells that were resampled.
 genes <- c("CD3D")
 
 libs <- c(
+  "jurkat_original",
   "jurkat_gene_pulldown_lna",
-  "jurkat_gene_pulldown_dna",
-  "jurkat_original")
+  "jurkat_gene_pulldown_dna")
 
 bc_metadat <- read_tsv(file.path(data_dir, 
                          "jurkat_gene_pulldown_dna", 
@@ -56,6 +56,9 @@ resampled_lib <- "jurkat_gene_pulldown_dna"
 
 pretty_names_resampled_libs <- c("LNA pulldown", "DNA pulldown")
 names(pretty_names_resampled_libs) <- resampled_libs
+
+pretty_names_all_libs <- c( "Original", "LNA pulldown", "DNA pulldown")
+names(pretty_names_all_libs) <- libs
 ```
 
 Load and organize a table for each library of read counts per cell per gene, and a table of umi counts per cell per gene. 
@@ -267,3 +270,29 @@ save_plot("ma_plots_reads.pdf", plt, base_width = 8)
 ```
 
 
+```{r vln_plot}
+plt_dat <- map(sc_objs, 
+    ~.x$log_norm_umi["CD3D", ]) %>% 
+  map(., 
+      ~data_frame(cell = names(.x), expr = .x)) %>%
+  bind_rows(., .id = "library")
+
+plt_dat <- mutate(plt_dat,
+                  library = pretty_names_all_libs[library],
+                  library = factor(library, 
+                                   levels = pretty_names_all_libs))
+plt <- ggplot(plt_dat,  
+       aes(library, expr)) + 
+  geom_jitter(size = 0.25, width = 0.25) +
+  geom_boxplot(aes(fill = library),
+               coef = Inf,
+               alpha = 0.66) +
+  scale_fill_manual(values = palette_okabeito,
+                    labels = labeller(pretty_names_all_libs)) +
+  labs(x = "",
+       y = expression(paste("CD3D (log"[2],
+                            " normalized counts)"))) + 
+  theme(legend.position = "none")
+
+save_plot("cd3d_boxplot.pdf", plt)
+```

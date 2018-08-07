@@ -32,7 +32,7 @@ rule build_site:
   input:
     rmd = "index.Rmd",
     htmls = expand(os.path.join(RESULTS, "{rmd}.html"), 
-      rmd = [PLOT_RMD]),
+      rmd = PLOT_RMD),
   output:
     os.path.join("_site", "index.html")
   log:
@@ -44,7 +44,7 @@ rule build_site:
   
 rule run_plotting_markdown:
   """ 
-  render Rmarkdown to produce intermediate data files
+  render plotting Rmarkdown
   """
   input:
    rmd =  os.path.join(RESULTS, "{rmd}.Rmd"),
@@ -61,7 +61,7 @@ rule run_plotting_markdown:
     
 rule run_processing_markdown:
   """ 
-  render Rmarkdown to produce intermediate data files
+  render long running Rmarkdown 
   """
   input:
     os.path.join(RESULTS, "{date}", "process.Rmd")
