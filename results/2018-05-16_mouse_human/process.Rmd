@@ -512,19 +512,19 @@ sobj <- FindClusters(sobj,
 
 ```{r}
 mdata <- sc_objs$mouse_human_cell_pulldown$meta_dat %>% 
-  select(cell_id, resampled, matches("purity_umis"))
+  select(barcode_10x, resampled, matches("purity_umis"))
 
 mdata_sub <- filter(mdata, resampled) %>% 
-  select(cell_id, resampled, proportion_human = purity_umis) %>% 
-  mutate(cell_id = str_c(cell_id, "::resampled"),
+  select(barcode_10x, resampled, proportion_human = purity_umis) %>% 
+  mutate(barcode_10x = str_c(barcode_10x, "::resampled"),
          proportion_mouse = 1 - proportion_human) 
 
 mdata_ogsub <- filter(mdata, resampled) %>% 
-  select(cell_id, resampled, proportion_human = og_purity_umis) %>% 
+  select(barcode_10x, resampled, proportion_human = og_purity_umis) %>% 
   mutate(proportion_mouse = 1 - proportion_human) 
 
 mdata_not_sub <- filter(mdata, !resampled) %>% 
-  select(cell_id, resampled, proportion_human = og_purity_umis) %>% 
+  select(barcode_10x, resampled, proportion_human = og_purity_umis) %>% 
   mutate(proportion_mouse = 1 - proportion_human)
 
 mdata <- bind_rows(list(mdata_sub, mdata_ogsub, mdata_not_sub)) %>% 
@@ -535,7 +535,7 @@ mdata <- bind_rows(list(mdata_sub, mdata_ogsub, mdata_not_sub)) %>%
                                  "Mouse",
                                  "Doublet"))) %>% 
   as.data.frame() %>% 
-  tibble::column_to_rownames("cell_id") %>% 
+  tibble::column_to_rownames("barcode_10x") %>% 
   select(-resampled) 
 
 

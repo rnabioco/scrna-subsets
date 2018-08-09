@@ -593,11 +593,7 @@ targeted <- genes_recovered %>%
   dplyr::filter(resampled) 
 
 plt_dat <- genes_recovered %>% 
-  dplyr::filter(!resampled) %>% 
-  group_by(type) %>% 
-  summarize(count = mean(count)) %>% 
-  mutate(cell_id = "Not targeted\nbarcodes\n(mean)") %>% 
-  bind_rows(targeted, .) %>% 
+  dplyr::filter(resampled) %>% 
   mutate(type = ifelse(type == "new\ngenes",
                         "Newly\ndetected\ngenes",
                         ifelse(type == "shared\ngenes",
@@ -627,6 +623,40 @@ save_plot("new_genes_species_specific_barplot.pdf", plt,
           base_width = 4, base_height = 5) 
 ```
 
+```{r}
+plt_dat <- genes_recovered %>% 
+  mutate(type = ifelse(type == "new\ngenes",
+                        "Newly\ndetected\ngenes",
+                        ifelse(type == "shared\ngenes",
+                               "Previously\ndetected\ngenes",
+                               ifelse(type == "not\nrecovered\ngenes",
+                                      "Previously\ndetected\ngenes\nnot recovered",
+                                      NA))))
+
+
+plt_dat <- mutate(plt_dat, 
+                  resampled = ifelse(resampled,
+                                     "Targeted barcodes",
+                                     "Not targeted barcodes"))
+
+plt <- ggplot(plt_dat, 
+       aes(type, count)) +
+  geom_boxplot(aes(fill = resampled),
+           coef = Inf) +
+  labs(y = "# of genes") + 
+  scale_x_discrete(labels = cell_names) + 
+  scale_y_continuous(labels = scales::comma) + 
+  scale_fill_manual(values = palette_okabeito, name = "") +
+  theme(axis.title.x = element_blank(),
+        legend.position = "top",
+        plot.margin = unit(c(5.5, 50.5, 5.5, 5.5), 
+                           "points"),
+        legend.key.size = unit(10, "pt")) 
+
+save_plot("new_genes_species_specific_boxplots.pdf", plt, 
+           base_aspect_ratio = 1.1, base_height = 4) 
+
+```
 ### Plot expression per cell 
 
 #### MA plots
@@ -993,16 +1023,9 @@ plt <- ggplot(umis_recovered,
 
 plt 
 
-targeted <- umis_recovered %>% 
-  dplyr::filter(resampled) %>% 
-  mutate(cell_id = str_c(barcode_10x, "-1"))
-
 plt_dat <- umis_recovered %>% 
-  dplyr::filter(!resampled) %>% 
-  group_by(class) %>% 
-  summarize(count = mean(count)) %>% 
-  mutate(cell_id = "Not targeted\nbarcodes\n(mean)") %>% 
-  bind_rows(targeted, .) %>% 
+  dplyr::filter(resampled) %>% 
+  mutate(cell_id = str_c(barcode_10x, "-1")) %>% 
   mutate(class = ifelse(class == "new_umis",
                         "Newly\ndetected\nUMIs",
                         ifelse(class == "shared_umis",
@@ -1010,7 +1033,6 @@ plt_dat <- umis_recovered %>%
                                ifelse(class == "not_detected_umis",
                                       "Previously\ndetected\nUMIs\nnot recovered",
                                       NA))))
-
 
 plt <- ggplot(plt_dat, 
        aes(cell_id, count)) +
@@ -1030,6 +1052,40 @@ plt <- ggplot(plt_dat,
 
 save_plot("new_umis_species_specific.pdf", plt,
           base_width = 4, base_height = 5)
+
+
+plt_dat <- umis_recovered %>% 
+  mutate(cell_id = str_c(barcode_10x, "-1")) %>% 
+  mutate(class = ifelse(class == "new_umis",
+                        "Newly\ndetected\nUMIs",
+                        ifelse(class == "shared_umis",
+                               "Previously\ndetected\nUMIs",
+                               ifelse(class == "not_detected_umis",
+                                      "Previously\ndetected\nUMIs\nnot recovered",
+                                      NA))))
+
+
+plt_dat <- mutate(plt_dat, 
+                  resampled = ifelse(resampled,
+                                     "Targeted barcodes",
+                                     "Not targeted barcodes"))
+
+plt <- ggplot(plt_dat, 
+       aes(class, count)) +
+  geom_boxplot(aes(fill = resampled),
+           coef = Inf) +
+  labs(y = "# of UMIs") + 
+  scale_x_discrete(labels = cell_names) + 
+  scale_y_continuous(labels = scales::comma) + 
+  scale_fill_manual(values = palette_okabeito, name = "") +
+  theme(axis.title.x = element_blank(),
+        legend.position = "top",
+        plot.margin = unit(c(5.5, 50.5, 5.5, 5.5), 
+                           "points"),
+        legend.key.size = unit(10, "pt")) 
+
+save_plot("new_umis_species_specific_boxplots.pdf", plt, 
+          base_aspect_ratio = 1.1, base_height = 4) 
 ```
 
 ```{r}
@@ -1115,7 +1171,9 @@ save_plot("original_cells_mouse_human_markers.pdf", plt,
 
 sobj <- readRDS("rs_sobj.rds")
 sobj <- SetAllIdent(sobj, "species")
+```
 
+```{r}
 tsne_dat <- GetCellEmbeddings(sobj, reduction.type = "tsne") %>% 
   as.data.frame() %>% 
   tibble::rownames_to_column("cell")
@@ -1125,12 +1183,12 @@ mdata <- sobj@meta.data %>%
   tibble::rownames_to_column("cell")
 
 tsne_dat <- left_join(tsne_dat, 
-                         mdata,
-                         by = "cell")
+                      mdata,
+                      by = "cell")
 plt <- ggplot(tsne_dat, 
               aes(tSNE_1, tSNE_2)) + 
   geom_point(aes(color = species), size = 0.1) + 
-  scale_color_manual(values = brewer.pal(3, "Paired"),
+  scale_color_manual(values = palette_okabeito,
                      name = "") +
   labs(title = "",
        x = "tSNE 1",
@@ -1152,32 +1210,35 @@ og_cell_dat <- tsne_dat %>%
 
 resampled_cell_dat <- tsne_dat %>% 
   filter(cell %in% str_c(cells[[resampled_lib]], 
-                                 "::resampled")) %>% 
+                         "::resampled")) %>% 
   mutate(cell = str_replace(cell, "::resampled", "")) %>% 
   select(cell, tSNE_1, tSNE_2)
 
 cell_dat <- left_join(og_cell_dat, 
                       resampled_cell_dat, 
                       by = "cell", 
-                      suffix = c("", "_resampled"))
+                      suffix = c("", "_resampled")) %>% 
+  arrange(resampled)
 
 
 resampled_cells <- ggplot(tsne_dat, 
-              aes(tSNE_1, tSNE_2)) + 
+                          aes(tSNE_1, tSNE_2)) + 
   geom_point(aes(color = resampled), size = 0.1) + 
   scale_color_manual(values = c("lightgrey",
-                                brewer.pal(7, "Set1")[1:2]),
+                                color_palette),
                      name = "",
                      labels = c("not resampled" = "Not Resampled",
                                 "original cell" = "Original Cell",
                                 "resampled" = "Resampled Cell")) +
   geom_segment(data = cell_dat, 
-                               aes(x = tSNE_1,
-                                   y = tSNE_2, 
-                                   xend = tSNE_1_resampled,
-                                   yend = tSNE_2_resampled),
-                               linejoin = "mitre",
-                               arrow = arrow(length = unit(0.03, "npc"))) + 
+               aes(x = tSNE_1,
+                   y = tSNE_2, 
+                   xend = tSNE_1_resampled,
+                   yend = tSNE_2_resampled ),
+               color = color_palette[2],
+               linejoin = "mitre",
+               arrow = arrow(length = unit(0.02, "npc"),
+                             type = "open")) + 
   labs(title = "",
        x = "tSNE 1",
        y = "tSNE 2") +
@@ -1185,16 +1246,16 @@ resampled_cells <- ggplot(tsne_dat,
   guides(color = guide_legend(nrow = 3, 
                               ncol = 1,
                               override.aes = list(size = 4))) + 
-  theme(legend.position = c(1.05, 1.05),
+  theme(legend.position = "none",
         legend.justification = c("right", "top"),
         legend.box.just = "right")  
 
-plt <- plot_grid(plt, 
-                 resampled_cells,
-                 ncol = 2)
-plt
+plt_out <- plot_grid(plt, 
+                     resampled_cells,
+                     ncol = 2)
+plt_out
 
-save_plot("resampled_tsne.pdf", plt, 
+save_plot("resampled_tsne.pdf", plt_out, 
           nrow = 1, ncol = 2,
           base_height = 5.5, base_width = 4.25)
 ```

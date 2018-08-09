@@ -33,7 +33,6 @@ This RMarkdown document will produce the following figures:
 knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_chunk$set(warning = FALSE)
 knitr::opts_chunk$set(message = FALSE)
-knitr::opts_chunk$set(cache = TRUE)
 ```
 
 ```{r, message=F, warning=F, echo=F}
@@ -500,11 +499,7 @@ targeted <- genes_recovered %>%
 targeted
 
 plt_dat <- genes_recovered %>% 
-  dplyr::filter(!resampled) %>% 
-  group_by(type) %>% 
-  summarize(count = mean(count)) %>% 
-  mutate(cell_id = "Not targeted\nbarcodes\n(mean)") %>% 
-  bind_rows(targeted, .) %>% 
+  dplyr::filter(resampled) %>% 
   mutate(type = ifelse(type == "new\ngenes",
                         "Newly\ndetected\ngenes",
                         ifelse(type == "shared\ngenes",
@@ -541,12 +536,48 @@ save_plot("new_genes_barplot.pdf", plt,
 
 ```
 
+```{r}
+plt_dat <- genes_recovered %>% 
+  mutate(type = ifelse(type == "new\ngenes",
+                        "Newly\ndetected\ngenes",
+                        ifelse(type == "shared\ngenes",
+                               "Previously\ndetected\ngenes",
+                               ifelse(type == "not\nrecovered\ngenes",
+                                      "Previously\ndetected\ngenes\nnot recovered",
+                                      NA))))
+
+plt_dat <- mutate(plt_dat, 
+                  resampled = ifelse(resampled,
+                                     "Targeted barcodes",
+                                     "Not targeted barcodes"))
+plt <- ggplot(plt_dat, 
+       aes(type, count)) +
+  geom_boxplot(aes(fill = resampled),
+           coef = Inf) +
+  labs(y = "# of genes") + 
+  scale_x_discrete(labels = cell_names) + 
+  scale_y_continuous(labels = scales::comma) + 
+  scale_fill_manual(values = palette_okabeito, name = "") +
+  theme(axis.title.x = element_blank(),
+        legend.position = "top",
+        plot.margin = unit(c(5.5, 50.5, 5.5, 5.5), 
+                           "points"),
+        legend.key.size = unit(10, "pt")) 
+
+save_plot("new_genes_boxplots.pdf", plt, 
+          base_aspect_ratio = 1.1, base_height = 4) 
+
+```
+
 
 ```{r shared_new_genes}
 new_genes <- sc_objs$mkcell_pulldown$new_genes[cells$mkcell_pulldown]
 
 all_genes <- unique(unlist(new_genes))
 
+```
+
+```{r eval = F}
 library(UpSetR)
 pdf("new_genes_shared.pdf")
   upset(fromList(new_genes), order.by = "freq")
@@ -592,7 +623,7 @@ ma_dat <- map(cell_ids,
              ref_mat[genes_to_plot, cols],
              cell = .x))
 
-names(ma_dat) <- cell_ids
+names(ma_dat) <- names(cell_names)
 ma_dat <- bind_rows(ma_dat, .id = "cell")
 
 plot_ma <- function(df){
@@ -639,7 +670,7 @@ ma_dat <- map(cell_ids,
              cell = x)
 })
 
-names(ma_dat) <- cell_ids
+names(ma_dat) <- names(cell_names)
 ma_dat <- bind_rows(ma_dat, .id = "cell")
 plt <- plot_ma(ma_dat)
 plt
@@ -656,7 +687,7 @@ ma_dat <- map(cell_ids,
              cell = x)
 })
 
-names(ma_dat) <- cell_ids
+names(ma_dat) <- names(cell_names)
 ma_dat <- bind_rows(ma_dat, .id = "cell")
 plt <- plot_ma(ma_dat)
 plt
@@ -935,6 +966,39 @@ plt <- ggplot(plt_dat,
 save_plot("new_umis_barplot.pdf", plt,
           base_width = 4, base_height = 5)
 
+
+plt_dat <- umis_recovered %>% 
+  mutate(cell_id = str_c(barcode_10x, "-1")) %>% 
+  mutate(class = ifelse(class == "new_umis",
+                        "Newly\ndetected\nUMIs",
+                        ifelse(class == "shared_umis",
+                               "Previously\ndetected\nUMIs",
+                               ifelse(class == "not_detected_umis",
+                                      "Previously\ndetected\nUMIs\nnot recovered",
+                                      NA))))
+
+plt_dat <- mutate(plt_dat, 
+                  resampled = ifelse(resampled,
+                                     "Targeted barcodes",
+                                     "Not targeted barcodes"))
+
+plt <- ggplot(plt_dat, 
+       aes(class, count)) +
+  geom_boxplot(aes(fill = resampled),
+           coef = Inf) +
+  labs(y = "# of UMIs") + 
+  scale_x_discrete(labels = cell_names) + 
+  scale_y_continuous(labels = scales::comma) + 
+  scale_fill_manual(values = palette_okabeito, name = "") +
+  theme(axis.title.x = element_blank(),
+        legend.position = "top",
+        plot.margin = unit(c(5.5, 50.5, 5.5, 5.5), 
+                           "points"),
+        legend.key.size = unit(10, "pt")) 
+
+save_plot("new_umis_boxplots.pdf", plt, 
+           base_aspect_ratio = 1.1, base_height = 4) 
+
 ```
 
 ```{r}
@@ -1040,7 +1104,8 @@ immune_markers <- c(t_cells = "CD3E",
                     monocyte = "FCGR3A")
 
 plts <- map(immune_markers, ~plot_feature(sobj, gene = .x, 
-                                          pt.alpha = 1))
+                                          pt.alpha = 1, 
+                                          legend_name = .x))
 plt <- plot_grid(plotlist = plts,  nrow = 4)
 save_plot("og_tsne_markers.pdf", plt,
           nrow = 4, ncol = 3)
@@ -1119,6 +1184,41 @@ save_plot("original_pbmc_annotated_tsne.pdf", plt,
           base_width = 5.5, 
           base_aspect_ratio = 1.5, nrow = 1, ncol = 2)
 
+
+arrow_plt <- ggplot(tsne_dat, 
+  aes(tSNE_1, tSNE_2)) + 
+  geom_point(aes(color = cell_labels_annotated), size = 0.1) + 
+  scale_color_manual(values = brewer.pal(10, "Paired"),
+                     name = "") +
+  labs(title = "",
+       x = "tSNE 1",
+       y = "tSNE 2") +
+    geom_text_repel(data = filter(tsne_dat, resampled),
+                                     aes(label = "."),
+                                     size = 0,
+                                     force = 1,
+                                     min.segment.length = 0,
+                    box.padding = 0.5,
+                    segment.size = 0.35,
+                                     point.padding = 0.05,
+                                     arrow = arrow(length = unit(0.1,
+                                                                 "line"), 
+                                                   angle = 35,
+                                                   type = "open", 
+                                                   ends = "last"),
+                    seed = 42
+                     ) +
+   theme_cowplot() + 
+  guides(color = guide_legend(override.aes = list(size = 4))) + 
+  theme(legend.pos = "right",
+        aspect.ratio = 1,
+        legend.text = element_text(size = 10),
+        axis.text = element_text(size = 10),
+        axis.title = element_text(size = 10)) 
+
+save_plot("original_pbmc_annotated_tsne_arrows.pdf", arrow_plt, 
+          base_width = 5.5, 
+          base_aspect_ratio = 1.5)
 ```
 
 
@@ -1178,8 +1278,7 @@ resampled_cells <- ggplot(tsne_dat,
   aes(tSNE_1, tSNE_2)) + 
   geom_point(aes(color = resampled), size = 0.1) + 
   scale_color_manual(values = c("lightgrey",
-                                            brewer.pal(7,
-                                                       "Set1")[1:2]),
+                                color_palette),
                      name = "",
                      labels = c("not resampled" = "Not Resampled",
                                 "original cell" = "Original Cell",
@@ -1200,8 +1299,7 @@ close_up <- ggplot(tsne_dat,
   aes(tSNE_1, tSNE_2)) + 
   geom_point(aes(color = resampled), size = 2) + 
   scale_color_manual(values = c("lightgrey",
-                                            brewer.pal(7,
-                                                       "Set1")[1:2]),
+                                color_palette),
                      name = "",
                      labels = c("not resampled" = "Not Resampled",
                                 "original cell" = "Original Cell",
@@ -1373,10 +1471,10 @@ ma_dat <- map(cell_ids,
              ref_mat[genes_to_plot, cols],
              cell = .x))
 
-names(ma_dat) <- cell_ids
+names(ma_dat) <- names(cell_names)
 ma_dat <- bind_rows(ma_dat, .id = "cell") %>% 
   mutate(cell = factor(cell,
-                       levels = cells[[resampled_lib]]))
+                       levels = names(cell_names)))
 
 plot_ma <- function(df, markers){
   
@@ -1407,12 +1505,11 @@ plot_ma <- function(df, markers){
     geom_text(data = n_down, aes(x = max(ma_dat$mean_expression_log2) * 0.7, 
                                  y = min(ma_dat$log2_diff) * 1.2, 
                                  label = n)) + 
-    facet_wrap(~cell, nrow = 1, 
-               labeller = labeller(cell = cell_names)) +
+    facet_wrap(~cell, nrow = 1, labeller = labeller(cell = cell_names)) +
     labs(x = expression(paste("Abundance (log"[2], ")")),
          y = expression(paste(frac("resampled","Original"), 
                               " (log"[2], ")"))) +
-    scale_color_manual(palette = color_palette, name = "") +
+    scale_color_manual(values = color_palette, name = "") +
     guides(colour = guide_legend(override.aes = list(size = 4))) + 
     theme(legend.position = "top")
   plt

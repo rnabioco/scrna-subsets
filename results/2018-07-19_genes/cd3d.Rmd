@@ -272,7 +272,7 @@ save_plot("ma_plots_reads.pdf", plt, base_width = 8)
 
 ```{r vln_plot}
 plt_dat <- map(sc_objs, 
-    ~.x$log_norm_umi["CD3D", ]) %>% 
+    ~.x$log_norm_umi[c("CD3D", "CD3E", "CD3A", ]) %>% 
   map(., 
       ~data_frame(cell = names(.x), expr = .x)) %>%
   bind_rows(., .id = "library")
