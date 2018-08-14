@@ -224,8 +224,8 @@ plt <- ggplot(avg_expr_df, aes_string(reflib, "fc")) +
   geom_text_repel(data = resampled_info,
                   aes(label = gene), 
                   arrow = arrow(length = unit(0.02, "npc"))) +
-  labs(x = "Abundance in original library UMIs (log2)",
-       y = expression(paste( " Log"[2], " ", frac("resampled", "original")))) +
+  labs(x = expression(paste("Abundance in original library (Log"[2], " mean UMIs)")),
+       y = expression(paste( " Log"[2], " ", frac("Resampled", "Original")))) +
   theme(legend.position = "none")
   
 plt
@@ -262,8 +262,8 @@ plt <- ggplot(avg_expr_df, aes_string(reflib, "fc")) +
   geom_text_repel(data = resampled_info,
                   aes(label = gene), 
                   arrow = arrow(length = unit(0.02, "npc"))) +
-  labs(x = "Abundance in original library reads (log2)",
-       y = expression(paste( " Log"[2], " ", frac("resampled", "original")))) 
+  labs(x = "Abundance in original library (log2 reads)",
+       y = expression(paste( " Log"[2], " ", frac("Resampled", "Original")))) 
   
 plt
 save_plot("ma_plots_reads.pdf", plt, base_width = 8)
@@ -272,27 +272,149 @@ save_plot("ma_plots_reads.pdf", plt, base_width = 8)
 
 ```{r vln_plot}
 plt_dat <- map(sc_objs, 
-    ~.x$log_norm_umi[c("CD3D", "CD3E", "CD3A", ]) %>% 
+    ~.x$log_norm_umi[c("CD3D", "CD3E", "CD3G"), , drop = F]) %>% 
   map(., 
-      ~data_frame(cell = names(.x), expr = .x)) %>%
+      ~t(.x) %>% as.matrix(.) %>% as.data.frame() %>% 
+        tibble::rownames_to_column("cell")) %>%
   bind_rows(., .id = "library")
 
 plt_dat <- mutate(plt_dat,
                   library = pretty_names_all_libs[library],
                   library = factor(library, 
                                    levels = pretty_names_all_libs))
+
+plt_dat <- gather(plt_dat, gene_name, expr, -cell, -library)
+
 plt <- ggplot(plt_dat,  
        aes(library, expr)) + 
-  geom_jitter(size = 0.25, width = 0.25) +
-  geom_boxplot(aes(fill = library),
-               coef = Inf,
-               alpha = 0.66) +
+  geom_jitter(size = 0.1, width = 0.25) + 
+  geom_violin(aes(fill = library), 
+               alpha = 0.75) +
+  facet_grid(~gene_name) + 
   scale_fill_manual(values = palette_okabeito,
-                    labels = labeller(pretty_names_all_libs)) +
+                    labels = labeller(fill = pretty_names_all_libs)) +
   labs(x = "",
-       y = expression(paste("CD3D (log"[2],
-                            " normalized counts)"))) + 
-  theme(legend.position = "none")
+       y = expression(paste("Log"[2],
+                            " normalized counts"))) + 
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 90,
+                                   hjust = 1,
+                                   vjust = 0.5))
 
-save_plot("cd3d_boxplot.pdf", plt)
+save_plot("cd3d_boxplot.pdf", plt,
+          base_aspect_ratio = 2)
+```
+
+```{r detect_rate}
+plt_dat <- map(sc_objs, 
+    ~data_frame(gene = rownames(.x$umi_matrix), 
+                detection_rate = rowSums(.x$umi_matrix > 0) / ncol(.x$umi_matrix))) %>%
+  bind_rows(., .id = "library")
+
+plt_dat <- mutate(plt_dat,
+                  library = pretty_names_all_libs[library],
+                  library = factor(library, 
+                                   levels = pretty_names_all_libs))
+plt_dat <- mutate(plt_dat, ecd = ecdf(detection_rate)(detection_rate))
+
+plt <- ggplot(plt_dat,  
+       aes(detection_rate, ecd)) + 
+  geom_line() + 
+  facet_wrap(~library) +
+ geom_text_repel(data = filter(plt_dat, gene == "CD3D"),
+                   aes(label = gene),
+                   force = 10,
+                  min.segment.length = 0,
+                  point.padding = 0.25,
+                  seed = 42,
+                  arrow = arrow(length = unit(0.3,
+                                              "line"), 
+                                angle = 35,
+                                type = "open", 
+                                ends = "last")
+  ) +
+  labs(x = "Gene Detection Rate",
+       y = "eCDF")
+
+save_plot("gene_detection_rate.pdf", plt,
+          base_aspect_ratio = 3)
+
+```
+
+
+```{r coverage}
+library("GenomicFeatures")
+library(GenomicRanges)
+library(GenomicAlignments)
+library("Gviz")
+library(rtracklayer)
+gtf_fn <- "~/Projects/shared_dbases/annotation/gencode.v25.annotation.gtf"
+bam_fn <- dir("~/bodhi/Projects/subsampled_scRNA/data/lna_gene",
+              pattern = ".bam$",
+              recursive = T,
+              full.names = T)
+bam_fns <- str_subset(bam_fn , "jurkat") %>% 
+  str_subset(., "Aligned_bc_exons.bam")
+
+names(bam_fns) <- str_split(bam_fns, "/", simplify = T)[, 9]
+
+gtf <- import(gtf_fn)
+gtf_df <- gtf %>% as_data_frame()
+
+txdb_hg <- makeTxDbFromGRanges(gtf)
+gtrack <- GenomeAxisTrack(scale=0.10, labelPos="beside")
+
+cd3d_coords <- gtf_df %>% 
+  filter(gene_name == "CD3D") %>% 
+  summarize(seqnames = unique(seqnames),
+            start = min(start),
+            end = max(end),
+            strand = unique(strand))
+
+grange_region <- GRanges(cd3d_coords$seqnames,
+                         IRanges(cd3d_coords$start, cd3d_coords$end))
+
+param <- ScanBamParam(which=grange_region, 
+                      flag=scanBamFlag(isDuplicate=F))
+bams <- map(bam_fns, ~readGAlignments(.x, 
+                                      param=param))
+names(bams) <- names(bam_fns)
+read_coverage <- map(bams, coverage)
+read_coverage_gr <- map(read_coverage, ~as(.x, "GRanges"))
+
+dtracks <- pmap(list(read_coverage_gr[libs],
+                     names(read_coverage_gr[libs]),
+                     palette_okabeito[1:3]),
+                function(x, y, z){
+                DataTrack(range = x, 
+                           name =  pretty_names_all_libs[y],
+                           chromosome = "chr11", 
+                           genome = "hg38",
+                           col.line = z
+                          )})
+
+grtrack <- GeneRegionTrack(txdb_hg, 
+                           genome = "hg38", 
+                           chromosome="chr11", 
+                           name="CD3D",
+                           col.title = "black")
+
+options(ucscChromosomeNames=FALSE)  
+options(scipen=16)
+pdf("cd3d_coverage.pdf", width = 6, height = 4)
+plotTracks(c(list(grtrack), 
+             dtracks),
+           chromosome = "chr11",
+           from = cd3d_coords$start,
+           to = cd3d_coords$end,
+           type = "a",
+           stacking = "dense",
+           reverseStrand = TRUE, 
+           col.title = "black",
+           col.axis = "black",
+           background.title ="transparent",
+           lwd = 1.5, 
+           innerMargin = 10,
+           margin = 10)
+dev.off()
 ```
