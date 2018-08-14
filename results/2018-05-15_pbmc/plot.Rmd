@@ -652,7 +652,7 @@ plot_ma <- function(df){
                                  label = n)) + 
     facet_wrap(~cell, nrow = 1) +
     labs(x = expression(paste("Abundance (log"[2], ")")),
-         y = expression(paste(frac("resampled","Original"), " (log"[2], ")")))
+         y = expression(paste(frac("Resampled","Original"), " (log"[2], ")")))
   plt
 }
 
@@ -1507,7 +1507,7 @@ plot_ma <- function(df, markers){
                                  label = n)) + 
     facet_wrap(~cell, nrow = 1, labeller = labeller(cell = cell_names)) +
     labs(x = expression(paste("Abundance (log"[2], ")")),
-         y = expression(paste(frac("resampled","Original"), 
+         y = expression(paste(frac("Resampled","Original"), 
                               " (log"[2], ")"))) +
     scale_color_manual(values = color_palette, name = "") +
     guides(colour = guide_legend(override.aes = list(size = 4))) + 
@@ -1515,9 +1515,66 @@ plot_ma <- function(df, markers){
   plt
 }
 
-plt <- plot_ma(ma_dat, mk_markers$gene)
-plt
-save_plot("per_cell_MA_mk_markers.pdf", plt, 
+marker_plt <- plot_ma(ma_dat, mk_markers$gene) +
+  theme(plot.margin = unit(rep(0, 4), "lines"))
+marker_plt
+save_plot("per_cell_MA_mk_markers.pdf", marker_plt, 
+          base_height = 4, base_aspect_ratio = 2.5)
+
+# umi_seqs defined above
+umi_seqs_split <- umi_seqs[[resampled_lib]] %>% 
+  filter(!is.na(count.x)) %>% 
+  separate(umi_molecule, into = c("umi", "gene"), sep = "::")
+  
+
+mks <- rownames(sobj@meta.data)[sobj@meta.data$cell_labels == "Megakaryocytes"]
+
+umi_seqs_split <- mutate(umi_seqs_split, 
+                         mk = ifelse(barcode_10x %in% mks, 
+                                     T,
+                                     F))
+
+umi_summary <- group_by(umi_seqs_split,
+                        mk, 
+                        gene) %>% 
+  mutate(n_umis = n(),
+            n_reads = sum(count.x),
+            read_saturation = 1 - (n_umis / n_reads),
+            umi_saturation = n_umis / 4^10)
+
+umi_summary <- mutate(umi_summary, 
+                      cell = str_c(barcode_10x, "-1"))
+plt_dat <- left_join(ma_dat, umi_summary, by = c("cell", "gene")) %>% 
+  filter(!is.na(barcode_10x)) %>% 
+  mutate(cell = factor(cell_names[cell],
+                       levels = cell_names))
+
+seq_sat_plt <- ggplot(plt_dat,
+         aes(mean_expression_log2,
+             log2_diff)) +
+    geom_hline(aes(yintercept = 0), linetype = "dashed", colour = "grey") + 
+    geom_point(aes(color = read_saturation), 
+               size = 0.25) +
+    scale_colour_gradientn(colours = rev(brewer.pal(9, "Reds")),
+                           name = "Sequencing\nSaturation") +
+    facet_wrap(~cell, nrow = 1) +
+    labs(x = expression(paste("Abundance (log"[2], ")")),
+         y = expression(paste(frac("Resampled","Original"), 
+                              " (log"[2], ")"))) +
+    theme(legend.position = "top",
+          legend.key.width = unit(7.5, 
+                                  "mm"),
+          plot.margin = unit(rep(0, 4), "lines"))
+        #  legend.text = element_text(size = 10),
+         # legend.title = element_text(size = 10))
+
+seq_sat_plt
+save_plot("per_cell_MA_seq_saturation.pdf", seq_sat_plt, 
+          base_height = 4, base_aspect_ratio = 2.5)
+
+plt <- plot_grid(seq_sat_plt, marker_plt, nrow = 2, 
+                 align = "hv")
+save_plot("per_cell_MA_combined_plots.pdf", plt, nrow = 2, ncol = 1,
           base_height = 4, base_aspect_ratio = 2.5)
 ```
 
@@ -1646,7 +1703,7 @@ plt <- ggplot(summary_df,
   
 save_plot("nmarkers_kirkpatrick_pbmcs.pdf", 
           plt,
-          base_aspect_ratio = 0.75)
+          base_aspect_ratio = 1)
 plt
 ```
 
