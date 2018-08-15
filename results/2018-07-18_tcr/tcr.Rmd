@@ -84,11 +84,58 @@ save_plot("contig_length_and_reads.pdf", plt,
 plt
 ```
 
+```{r read_umi_enrichment}
+plt_dat <- annotations %>% 
+  group_by(library, barcode) %>% 
+  summarize(n_reads = sum(reads)) %>% 
+  spread(library, n_reads, fill = 0) %>% 
+  mutate(
+    norm_res =  1e6 * (resampled / sum(resampled)),
+    norm_og =  1e6 * (original / sum(original)),
+    enrichment = log2(norm_res + 1) - log2(norm_og + 1),
+    abundance = norm_og,
+    resampled = barcode %in% barcodes_10x)
+
+plt <- ggplot(plt_dat, aes(abundance, enrichment)) +
+  geom_point(aes(color = resampled),
+             size = 0.5) +
+  geom_abline(aes(intercept = 0, slope = 0), 
+              linetype = "dashed",
+              colour = "darkgrey") +
+  geom_text_repel(data = filter(plt_dat, resampled),
+                  aes(label = ".",
+                      color = resampled),
+                  size = 0,
+                  force = 10,
+                  min.segment.length = 0,
+                  point.padding = 1.0,
+                  seed = 42,
+                  arrow = arrow(length = unit(0.3,
+                                              "line"), 
+                                angle = 35,
+                                type = "open", 
+                                ends = "last")
+  ) +
+  labs(x = "Abundance in original library\n (UMIs)", 
+       y = expression(paste( "Log"[2], " TCR-a/b UMIs ", 
+                             frac("Resampled", "Original")))) +
+  scale_x_continuous(labels = scales::comma) +      
+  scale_colour_manual(name = "resampled:", values = color_palette) +
+theme_cowplot(font_size = 16, line_size = 0.5) +
+  theme(legend.position = "none",
+        legend.text = element_text(size = 12))
+
+save_plot("resampled_barcode_enrichment.pdf", plt)
+```
+
 ## Coverage
 
 Plot read coverage across the consensus TCR-alpha and beta chains. Fastqs from the resampled cells were realigned to the consensus sequences derived from cellranger VDJ output from the original library to compute coverage. The default output doesn't provide direct read alignments to the consensus sequences. 
 
-For visualization purposes first I will generate annotations of the TCR a/b consensus sequences. 
+For visualization purposes first I will generate annotations of the TCR a/b consensus sequences. There annotations for the `concat_ref.fasta` are buried in the log files in the cellranger output:
+`SC_VDJ_ASSEMBLER_CS/SC_VDJ_ASSEMBLER/ASSEMBLE_CONSENSUS/fork0/files/concat_ref_annotations_json.json`
+
+This json file is formatted similarlly to the `consensus_annotations.json` that is included in the outs directory.
 
 ```{r}
 library(Gviz)
@@ -254,7 +301,7 @@ plot_cov <- function(fasta, tcr, bam_fns, aTrack, cdrTrack){
                    })                       
   
   options(scipen=16)
-  pdf(paste0(tcr, "_coverage.pdf"), width = 8, height = 4)
+  pdf(paste0(tcr, "_coverage.pdf"), width = 6, height = 4)
   plotTracks(c(dt1, dt2, list(aTrack), list(cdrTrack)),
              chromosome = tcr,
              from = start(fasta[[tcr]])[1], 

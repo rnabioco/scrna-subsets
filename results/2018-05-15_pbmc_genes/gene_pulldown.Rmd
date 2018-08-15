@@ -1,0 +1,442 @@
+---
+title: "PBMC gene pulldown analysis"
+author: "Kent Riemondy RBI"
+date: '`R Sys.Date()`'
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: false
+    theme: cosmo
+    highlight: tango
+    fig_caption: true
+    code_folding: hide
+    df_print: paged
+---
+
+## Examine Lna pulldown data
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+```
+
+```{r, message=F, warning=F, echo=F}
+source("../../R/globals.R")
+color_palette = c("#bdbdbd", "#1F78B4")
+```
+
+## Organize single cell libraries
+
+First designate the libraries and the cells that were subsampled. 
+
+```{r cell_ids}
+genes <- c("PF4", "PAX5", "CD19")
+
+libs <- c(
+  "kirkpatrick",
+  "gene_pulldown")
+
+bc_metadat <- read_tsv(file.path(data_dir, 
+                         "kirkpatrick", 
+                         "fastq",
+                         "original", 
+                         "barcodes_from_10x_run.txt"),
+                         col_names = c("barcode_10x", "cell_id"))
+
+## original library to compare against
+reflib <- "kirkpatrick"
+subsampled_libs <- "gene_pulldown"
+
+## reference subsampled lib for subsampled vs control plots
+subsampled_lib <- "gene_pulldown"
+```
+
+Load and organize a table for each library of read counts per cell per gene, and a table of umi counts per cell per gene. 
+
+```{r read_counts}
+umis_to_genes <- function(umipath, cells_to_exclude = c("Cell_unmatched")){
+  umis <- read_tsv(umipath,
+                   col_names = c("barcode_10x", 
+                                 "umi_molecule", 
+                                 "count")) %>% 
+    filter(barcode_10x != cells_to_exclude)
+  
+  mol_fields <- str_count(umis$umi_molecule[1], "::")
+  
+  if(mol_fields == 2 ){
+    umis <- separate(umis, umi_molecule, 
+                     into = c("seq", "genome", "gene"),
+                     sep = "::") %>% 
+      mutate(gene = str_c(genome, "::", gene))
+  } else if (mol_fields == 1){
+    umis <- separate(umis, umi_molecule, 
+                     into = c("seq", "gene"),
+                     sep = "::")
+  } else {
+    stop("separator :: missing from umi_molecule field")
+  }
+  
+  reads <- select(umis, 
+                  barcode_10x, 
+                  gene,
+                  count)
+  
+  reads <- group_by(reads, 
+                   barcode_10x, gene) %>% 
+    summarize(counts = sum(count))
+  
+  reads <- spread(reads, barcode_10x, counts, 
+                  fill = 0L)
+  
+  reads
+}
+
+## read in umigroups flat file with read counts per umi per gene per cell
+## expand out to a read count matrix
+umipaths <- file.path(data_dir, 
+                      libs, 
+                      "umis",
+                      "umigroups.txt.gz")
+read_dat <- map(umipaths, 
+                ~umis_to_genes(.))
+names(read_dat) <- libs
+
+## read in umi_tools count table with umi counts per gene per cell
+umi_dat <- map(libs, 
+                ~read_tsv(file.path(data_dir, 
+                          .x,
+                          "dgematrix",
+                          "dge_matrix.txt")) %>% 
+                 select(-matches("Cell_unmatched")))
+names(umi_dat) <- libs
+
+```
+
+
+```{r s3ify}
+#' simple class to hold info for each experiment
+create_sc_obj <- function(umi_df,
+                          read_df,
+                          cell_mdata_df){
+  x <- list()
+  class(x) <- "subsampled-set"
+  x$umis <- umi_df
+  x$reads <- read_df
+  return(x)
+}
+
+sc_objs <- list(umi_dat, read_dat)
+sc_objs <- pmap(sc_objs, create_sc_obj)
+
+rm(umi_dat)
+rm(read_dat)
+
+tidy_to_matrix <- function(df){
+   df <- as.data.frame(df)
+   rownames(df) <- df[, 1]
+   df[, 1] <- NULL
+   mat <- as.matrix(df)
+   mat <- as(mat, "sparseMatrix")   
+   return(mat)
+}
+
+#' keep both tidy and matrix objs
+generate_matrices <- function(sc_obj){
+  sc_obj$umi_matrix <- tidy_to_matrix(sc_obj$umis)
+  sc_obj$read_matrix <- tidy_to_matrix(sc_obj$reads)
+  sc_obj
+}
+#' normalize by library size (Reads per Million)
+norm_libsize <- function(sc_obj){
+  sc_obj$norm_umi <- 1e6 * sweep(sc_obj$umi_matrix, 2, 
+                                 sum(as.vector(sc_obj$umi_matrix)), "/")
+  sc_obj$norm_reads <- 1e6 * sweep(sc_obj$read_matrix, 2, 
+                                   sum(as.vector(sc_obj$read_matrix)), "/")
+  sc_obj
+}
+
+add_metadata <- function(sc_obj, dat){
+  if (is.vector(dat)){
+    new_colname <- deparse(substitute(dat))
+    df <- data_frame(!!new_colname := dat)
+    df[[new_colname]] <- dat
+    df[["cell_id"]] <- names(dat)
+    sc_obj$meta_dat <- left_join(sc_obj$meta_dat,
+                                 df,
+                                 by = "cell_id")
+    
+  } else if (is.data.frame(dat)) {
+    sc_obj$meta_dat <- left_join(sc_obj$meta_dat,
+                                 dat,
+                                 by = "cell_id")
+  }
+  sc_obj
+}
+
+compute_summaries <- function(sc_obj){
+  ## raw counts
+  total_umis <- colSums(sc_obj$umi_matrix)
+  names(total_umis) <- colnames(sc_obj$umi_matrix)
+  total_reads <- colSums(sc_obj$read_matrix)
+  names(total_reads) <- colnames(sc_obj$read_matrix)
+  
+  ## norm counts
+  norm_total_umis <- colSums(sc_obj$norm_umi)
+  names(norm_total_umis) <- colnames(sc_obj$norm_umi)
+  norm_total_reads <- colSums(sc_obj$norm_reads)
+  names(norm_total_reads) <- colnames(sc_obj$norm_reads)
+    
+  sc_obj <- add_metadata(sc_obj, total_umis)
+  sc_obj <- add_metadata(sc_obj, total_reads)
+  sc_obj <- add_metadata(sc_obj, norm_total_umis)
+  sc_obj <- add_metadata(sc_obj, norm_total_reads)
+  
+  ## compute cDNA duplication rate 
+  sc_obj$meta_dat$cDNA_duplication <- 1 - (sc_obj$meta_dat$total_umis /
+                                             sc_obj$meta_dat$total_reads)
+  
+  sc_obj
+}
+
+sc_objs <- map(sc_objs, generate_matrices)
+sc_objs <- map(sc_objs, norm_libsize)
+sc_objs <- map(sc_objs, compute_summaries)
+```
+
+## tSNE analysis
+
+```{r subsampled_tsne, results = 'hide'}
+library(Seurat)
+
+mat <- sc_objs[[reflib]]$umi_matrix
+
+subsampled_mat <- sc_objs[[subsampled_libs]]$umi_matrix[genes, ]
+rownames(subsampled_mat) <- str_c(rownames(subsampled_mat), "::", "subsampled")
+
+refcols <- colnames(mat)
+combined_mats <- rbind(mat, subsampled_mat[, refcols]) %>% 
+  as.matrix() %>% 
+  as(., "sparseMatrix")   
+
+sobj <- CreateSeuratObject(combined_mats)
+sobj <- NormalizeData(sobj)
+sobj <- ScaleData(sobj, vars.to.regress = "nUMI")
+sobj <- FindVariableGenes(sobj, do.plot = F)
+sobj <- RunPCA(sobj, pc.genes = sobj@var.genes, pcs.compute = 20, do.print = F)
+sobj <- RunTSNE(sobj, dims.use = 1:18, seed.use = 20180516)
+sobj <- FindClusters(sobj, 
+                     dims.use = 1:18, 
+                     resolution = 0.6, 
+                     print.output = F, 
+                     random.seed = 20180516)
+```
+
+
+```{r subsampled_plots}
+
+plts <- FeaturePlot(sobj, 
+                   c(genes, paste0(genes, "::subsampled")),
+                   no.legend = F,
+                   do.return = T,
+                   cols.use = c("grey", "purple")) %>% 
+  map(., ~.x + theme(legend.position = "bottom"))
+
+plt <- plot_grid(plotlist = plts, nrow = 2)
+
+save_plot("resampled_genes.pdf", plt, nrow = 2, ncol = 3,
+          base_height = 4.25, base_width = 4.25)
+
+#plts <- map(c(genes, paste0(genes, "::subsampled")), 
+#          ~plot_feature(sobj, gene = .x, pt.alpha = 1))
+
+#plt <- plot_grid(plotlist = plts, nrow = 2)
+
+##save_plot("resampled_genes_newcols.pdf", plt, nrow = 2, ncol = 3,
+#          base_height = 4.25, base_width = 5.5)
+```
+
+## Average Gene Abundance
+
+```{r avg_gene_abs}
+
+#' normalize by library size (Reads per Million) and log2 + 1
+norm_libsize <- function(sc_obj){
+  norm_umi <- 1e6 * sweep(sc_obj$umi_matrix, 2, 
+                                 sum(as.vector(sc_obj$umi_matrix)), "/")
+  norm_reads <- 1e6 * sweep(sc_obj$read_matrix, 2, 
+                                   sum(as.vector(sc_obj$read_matrix)), "/")
+  sc_obj$log_norm_umi <- log2(norm_umi + 1)
+  sc_obj$log_norm_reads <- log2(norm_reads + 1)
+  sc_obj
+}
+
+sc_objs <- map(sc_objs, norm_libsize)
+
+avg_expr <- map(sc_objs, ~log2(rowMeans(2^.x$log_norm_umi)))
+avg_expr <- map(avg_expr, ~data_frame(gene = names(.x),
+                                     expr = unname(.x)))
+avg_expr_df <- bind_rows(avg_expr, .id = "library")
+
+avg_expr_df <- avg_expr_df %>% 
+  spread(library, expr)
+
+avg_expr_df <- avg_expr_df %>% 
+  filter(!(gene_pulldown == 0 & kirkpatrick == 0)) %>% 
+  mutate(fc = log2(gene_pulldown / kirkpatrick),
+         subsampled = ifelse(gene %in% genes,
+                              T,
+                              F))  %>% 
+  arrange(subsampled)
+
+subsampled_info <- filter(avg_expr_df, subsampled)
+
+library(ggrepel)
+
+ggplot(avg_expr_df, aes(kirkpatrick, fc)) +
+  geom_point(aes(color = subsampled), size = 0.25) +
+  scale_color_manual(values = color_palette) +
+  geom_text_repel(data = subsampled_info,
+                  aes(label = gene), 
+                  arrow = arrow(length = unit(0.02, "npc"))) +
+  labs(x = "Abundance in original library UMIs (log2)",
+       y = expression(paste( " Log"[2], " ", frac("subsampled", "original")))) 
+  
+```
+
+```{r reads}
+
+avg_expr <- map(sc_objs, ~log2(rowMeans(2^.x$log_norm_reads)))
+avg_expr <- map(avg_expr, ~data_frame(gene = names(.x),
+                                     expr = unname(.x)))
+avg_expr_df <- bind_rows(avg_expr, .id = "library")
+
+avg_expr_df <- avg_expr_df %>% 
+  spread(library, expr)
+
+avg_expr_df <- avg_expr_df %>% 
+  filter(!(gene_pulldown == 0 & kirkpatrick == 0)) %>% 
+  mutate(fc = log2(gene_pulldown / kirkpatrick),
+         subsampled = ifelse(gene %in% genes,
+                              T,
+                              F))  %>% 
+  arrange(subsampled)
+
+subsampled_info <- filter(avg_expr_df, subsampled)
+
+library(ggrepel)
+
+ggplot(avg_expr_df, aes(kirkpatrick, fc)) +
+  geom_point(aes(color = subsampled), size = 0.25) +
+  scale_color_manual(values = color_palette) +
+  geom_text_repel(data = subsampled_info,
+                  aes(label = gene), 
+                  arrow = arrow(length = unit(0.02, "npc"))) +
+  labs(x = "Abundance in original library reads (log2)",
+       y = expression(paste( " Log"[2], " ", frac("subsampled", "original")))) 
+
+```
+
+
+## Compute per gene summaries 
+
+Figure out per gene saturation, percent of cells with expression, and expression level per gene to inform picking another set of genes to probe. 
+
+```{r cdna_sat}
+umi_files <- file.path(data_dir, libs, "umis", "umigroups.txt.gz")
+
+umi_seqs <- map(umi_files[2],
+                ~compare_umis(umi_files[1], .x, 
+                              return_summary = F))
+
+saturation <- umi_seqs[[1]] %>% 
+  separate(umi_molecule, into = c("umi", "gene"), sep = "::") %>%
+  select(-count.y) %>% 
+  filter(!is.na(count.x)) %>% 
+  group_by(barcode_10x, gene) %>% 
+  summarize(umis = n(),
+            reads = sum(count.x))
+
+saturation <- mutate(saturation,
+         saturation = 1 - (umis / reads)) %>% 
+  ungroup()
+
+per_gene_saturation <- group_by(saturation, gene) %>% 
+  summarize(umis = sum(umis), reads = sum(reads)) %>% 
+  ungroup() %>% 
+  mutate(saturation = 1 - (umis / reads))
+
+ggplot(per_gene_saturation, aes(saturation)) +
+  geom_histogram(bins = 100)
+
+## overall library saturation:
+1 - (sum(per_gene_saturation$umis) / sum(per_gene_saturation$reads))
+
+ncells <- length(unique(saturation$barcode_10x))
+numis <- sum(saturation$umis)
+
+expr_stats <- saturation %>% 
+  group_by(gene) %>% 
+  summarize(prop_expr = n() / ncells,
+            total_umis = sum(umis),
+            prop_umis = total_umis / numis)
+            
+expr_stats <- mutate(expr_stats,
+               rank_expr = rank(prop_expr, ties.method = "average") / length(prop_expr),
+               rank_umis = rank(total_umis, ties.method = "average") / length(total_umis))
+
+gene_stats <- expr_stats %>% filter(gene %in% genes)
+
+ggplot(expr_stats,
+       aes(total_umis)) +
+  geom_histogram(bins = 100) + 
+  scale_x_log10() +
+  geom_text(data = gene_stats,
+            aes(x = total_umis, 
+                y = unname(quantile(expr_stats$total_umis)[4]), 
+                label = gene))
+
+mean_expr <- data_frame(expr = log10(rowMeans(sc_objs$kirkpatrick$norm_umi) + 1),
+                   gene = rownames(sc_objs$kirkpatrick$norm_umi))
+expr_stats <- left_join(expr_stats,
+                        mean_expr, 
+                        by = "gene") 
+
+expr_stats <- mutate(expr_stats, 
+                     dropout_rate = 1 - prop_expr)
+
+expr_stats <- left_join(expr_stats, 
+                        DropFS, 
+                        by = c("gene" = "Gene"))
+
+expr_stats <- mutate(expr_stats, sig = ifelse(q.value < 0.01, 
+                                              "sig",
+                                              "notsig"))
+ggplot(expr_stats, 
+       aes(expr, dropout_rate)) +
+  geom_point(aes(colour = sig))
+```
+
+
+Try to find a housekeeping gene that is likely expressed in all cells.
+
+```{r }
+
+lm_model <- lm(rank_umis ~ rank_expr, data = expr_stats)
+high_residuals <- lm_model$residuals > sd(lm_model$residuals) * 3
+high_residual_expr <- expr_stats[high_residuals, ]
+
+ggplot(expr_stats,
+       aes(rank_expr, rank_umis)) +
+  geom_point() + 
+  geom_smooth() +
+  geom_point(data = high_residual_expr, 
+             aes(x = rank_expr, 
+                 y = rank_umis), color = "red")
+```
+
+
+## Genes
+
+NFKBIA

@@ -1,0 +1,479 @@
+---
+title: "Umi diversity analysis"
+author: "Kent Riemondy RBI"
+date: "`R Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: false
+    theme: cosmo
+    highlight: tango
+    fig_caption: true
+    code_folding: hide
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(fig.width = 5)
+knitr::opts_chunk$set(fig.height = 5)
+```
+
+```{r, message=F, warning=F, echo=F}
+source("../../R/globals.R")
+color_palette = c("#bdbdbd", "#1F78B4")
+```
+
+## Determine umi replication
+
+```{r cell_ids}
+cells <- list(
+  mkcell_pulldown = c("TGCGCAGCAGGTCGTC",
+                      "ACTTGTTAGGACCACA",
+                      "CCATTCGTCCCTGACT",
+                      "TGTCCCAGTAAACACA"))
+
+libs <- c(
+  "kirkpatrick",
+  "mkcell_pulldown")
+
+lib_data_dir <- file.path(data_dir,
+                          "lna_cell",
+                          "pbmc_expt")
+## original library to compare against
+reflib <- "kirkpatrick"
+## all resampled libs to plot
+resampled_libs <- "mkcell_pulldown"
+## reference resampled lib for resampled vs control plots
+resampled_lib <- "mkcell_pulldown"
+
+```
+
+
+```{r PBMCs}
+get_umi_positions <- function(umipath, 
+                              strip_10x_suffix = T,
+                              cells_to_exclude = c("Cell_unmatched")){
+  umis <- read_tsv(umipath,
+                   col_names = c("barcode_10x", 
+                                 "umi_molecule", 
+                                 "positions"),
+                   col_types = "ccc") %>% 
+    filter(barcode_10x != cells_to_exclude)
+  
+  if (strip_10x_suffix) {
+    umis <- mutate(umis, barcode_10x = str_replace(barcode_10x,
+                                                   "-[0-9]$",
+                                                   ""))
+  }
+  
+  mol_fields <- str_count(umis$umi_molecule[1], "::")
+  
+  if(mol_fields == 3){
+    umis <- separate(umis, umi_molecule, 
+                     into = c("seq", "chrom", "genome", "gene"),
+                     sep = "::") %>% 
+      mutate(gene = str_c(genome, "::", gene))
+  } else if (mol_fields == 2){
+    umis <- separate(umis, umi_molecule, 
+                     into = c("seq", "chrom", "gene"),
+                     sep = "::")
+  } else {
+    stop("separator :: missing from umi_molecule field")
+  }
+  
+  umis <- select(umis, 
+                 barcode_10x, 
+                 seq,
+                 gene,
+                 chrom,
+                 positions)
+  
+  umis <- mutate(umis,
+                 pos = str_replace(positions, ",$", "") %>% 
+                   str_split(., ",") %>% 
+                   map(., ~as.integer(.x)))
+  
+  umis <- select(umis, -positions) %>% unnest()
+  
+  umis
+}
+
+calc_umi_sharing <- function(libraries, 
+                             original, 
+                             resampled, 
+                             cells, 
+                             data_directory) {
+  
+  umipaths <- file.path(data_directory, 
+                        libraries, 
+                        "umis",
+                        "umigroups_positions.txt.gz")
+  names(umipaths) <- libraries
+  
+  ## collapse to sequence
+  og_umis <- get_umi_positions(umipaths[original]) %>% 
+    select(barcode_10x, seq, gene) %>% 
+    unique()
+    
+  umis_resampled <- map(umipaths[resampled], 
+                       ~get_umi_positions(.))
+
+  # collapse to sequence
+  umis_resampled <- map2(umis_resampled, cells, 
+    ~filter(.x, barcode_10x %in% .y) %>% 
+      select(barcode_10x, seq, gene) %>% 
+      unique())
+
+  # How many umis are shared?
+  shared_resampled_umis <- map(umis_resampled, 
+                              ~left_join(.x,
+                                og_umis, 
+                                by = c("seq" , "gene"))) 
+
+  # per cell
+  per_cell_resampled_shared_umis <- map(shared_resampled_umis,
+    ~mutate(.x, class = ifelse(is.na(barcode_10x.y), 
+                "new",
+                ifelse(barcode_10x.x == barcode_10x.y,
+                               "known",
+                               "new_shared"))) %>% 
+      group_by(barcode_10x.x, seq, gene) %>% 
+      arrange(class, .by_group = T) %>% 
+      summarize(class = str_c(unique(class), collapse = ","),
+                n_observed_umi = n()) %>% 
+      group_by(barcode_10x.x) %>% 
+      mutate(total_umis = n()) %>% 
+      dplyr::rename(barcode = barcode_10x.x))
+
+  res <- map(per_cell_resampled_shared_umis,
+    ~group_by(.x, barcode, class) %>% 
+      summarize(percent_class = 100 * (n() / unique(total_umis))))
+
+  names(res) <- resampled
+  res <- bind_rows(res, .id = "library")
+  res
+}
+
+out <- calc_umi_sharing(libraries = libs,
+                        original = reflib,
+                        resampled = resampled_libs,
+                        cells = cells,
+                        data_directory = lib_data_dir)
+
+out <- out %>% 
+    mutate(library = factor(library,
+                          levels = libs),
+           class = factor(class,
+                          levels = c(
+                            "known",
+                            "new",
+                            "known,new_shared",
+                            "new_shared"
+                          ),
+                          labels = c(
+                            "Previously Detected UMI",
+                            "Novel UMI not found in any cells",
+                            "Previously Detected UMI\nfound in multiple cells",
+                            "Novel UMI in resampled cell\npreviously detected in original library")))
+plot_umi_percents <- function(df, cells, libs){
+  
+  if(missing(cells)){
+    cells <- unique(df$barcode)
+  }
+  
+  if(missing(libs)){
+    libs <- unique(df$library)
+  }
+  umi_stats <- df %>% 
+  filter(str_detect(class, 
+                    "Novel UMI in resampled|Previously Detected UMI\nfound")) %>% 
+  group_by(library) %>% 
+  do(broom::tidy(t.test(.$percent_class ~ .$class, alternative = "less"))) 
+  
+  p <- ggplot(df,
+         aes(class, percent_class)) +
+         geom_jitter(aes(color = barcode), 
+                     width = 0.25) + 
+      geom_segment(aes(x = 3, xend = 4,
+                       y = max(df$percent_class) * 0.8),
+                       yend = max(df$percent_class) * 0.8) + 
+       geom_text(data = umi_stats,
+                 aes(x = 3.5, 
+                     y = max(df$percent_class) * 0.875,
+                     label = str_c("p = ", signif(p.value, 2))),
+                     inherit.aes = F) +
+       labs(y = "Percent UMIs Observed") +
+       facet_wrap(~library, 
+                  labeller = labeller(library = libs)) +
+    scale_color_brewer(name = "",
+                       palette = "Set1",
+                      labels = cells) +
+    scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
+    theme(axis.text.x = element_text(angle = 90,
+                                   hjust = 1,
+                                   vjust = 0.5),
+          axis.title.x = element_blank())
+  p 
+}
+
+out_dat <- list(pbmc = out)
+```
+
+
+## Wafergen PCR expts.
+
+```{r wafergen}
+libs <- list("original",
+             "standard", 
+             "biotinylated", 
+             "phosphorothioate")
+
+
+lib_data_dir <- file.path(data_dir,
+                          "pcr")
+
+cells <- list(
+  standard = c(
+    "Cell_4Bone_63_70",
+    "Cell_4Bone_27_61",
+    "Cell_4Bone_34_48",
+    "Cell_1Tumor_0_55",
+    "Cell_1Tumor_7_50",
+    "Cell_4Bone_30_23",
+    "Cell_4Bone_61_22",
+    "Cell_4Bone_66_9",
+    "Cell_3Brain_47_38",
+    "Cell_3Brain_14_46"
+  ),
+  biotin = c(
+    "Cell_4Bone_63_70",
+    "Cell_4Bone_27_61",
+    "Cell_4Bone_34_48",
+    "Cell_1Tumor_0_55",
+    "Cell_1Tumor_7_50",
+    "Cell_3Brain_47_38",
+    "Cell_3Brain_14_46",
+    "Cell_4Bone_28_54",
+    "Cell_4Bone_26_20",
+    "Cell_4Bone_60_43"
+  ),
+  phosphoro = c(
+    "Cell_1Tumor_7_50",
+    "Cell_3Brain_47_38",
+    "Cell_4Bone_28_54",
+    "Cell_4Bone_26_20",
+    "Cell_4Bone_60_43" 
+  )
+)
+
+reflib <- libs[[1]]
+resampled_libs <- unlist(libs[2:4])
+
+out <- calc_umi_sharing(libraries = libs,
+                        original = reflib,
+                        resampled = resampled_libs,
+                        cells = cells,
+                        data_directory = lib_data_dir)
+
+
+out <- out %>% 
+    mutate(library = factor(library,
+                          levels = libs),
+           class = factor(class,
+                          levels = c(
+                            "known",
+                            "new",
+                            "known,new_shared",
+                            "new_shared"
+                          ),
+                          labels = c(
+                            "Previously Detected UMI",
+                            "Novel UMI not found in any cells",
+                            "Previously Detected UMI\nfound in multiple cells",
+                            "Novel UMI in resampled cell\npreviously detected in original library")))
+
+out_dat$wafergen <- out
+  
+```
+
+
+## Mouse Human 10x genomics LNA
+
+```{r mouse_human_10x}
+cells <- list(
+  lna_control = c("GACGTTAGTGCCTGTG", "CTGATCCCATGACGGA"),
+  mouse_human_cell_pulldown = c("GACGTTAGTGCCTGTG", "CTGATCCCATGACGGA")
+  )
+
+libs <- c(
+  "original_10x",
+  "mouse_human_cell_pulldown")
+
+lib_data_dir <- file.path(data_dir,
+                          "lna_cell",
+                          "mh_mix")
+
+bc_metadat <- read_tsv(file.path(lib_data_dir, 
+                         "mouse_human_cell_pulldown", 
+                         "fastq",
+                         "original", 
+                         "barcodes_from_10x_run.txt"),
+                         col_names = c("cell_id", "barcode_10x")) 
+
+## original library to compare against
+reflib <- "original_10x"
+resampled_libs <- c("mouse_human_cell_pulldown")
+
+out <- calc_umi_sharing(libraries = libs,
+                        original = reflib,
+                        resampled = resampled_libs,
+                        cells = cells,
+                        data_directory = lib_data_dir)
+
+out <- out %>% 
+    mutate(library = factor(library,
+                          levels = libs),
+           class = factor(class,
+                          levels = c(
+                            "known",
+                            "new",
+                            "known,new_shared",
+                            "new_shared"
+                          ),
+                          labels = c(
+                            "Previously Detected UMI",
+                            "Novel UMI not found in any cells",
+                            "Previously Detected UMI\nfound in multiple cells",
+                            "Novel UMI in resampled cell\npreviously detected in original library")))
+
+out_dat$mouse_human <- out
+```
+
+
+```{r rdata}
+saveRDS(out_dat, "plotdat.Rdata")
+```
+
+## plot pretty 
+
+```{r rdata_in}
+plt_dat <- readRDS("plotdat.Rdata")
+
+## pretty name for libraries and cells
+mh_lib_names = c(
+  original_10x = "Original Library",
+  mouse_human_cell_pulldown = "NIH3T3:293T Mix\nLNA resampling"
+)
+
+mh_cell_names = c(
+  "GACGTTAGTGCCTGTG" = "Mouse Cell",
+  "CTGATCCCATGACGGA" = "Human Cell")
+
+## pretty name for mk pbmc expt
+mk_lib_names = c(
+  kirkpatrick = "Original Library",
+  mkcell_pulldown = "PBMC Megakaryocyte\nLNA resampling"
+)
+
+mk_cell_names = c(
+  "TGCGCAGCAGGTCGTC" = "MK-cell-1",
+  "ACTTGTTAGGACCACA" = "MK-cell-2",
+  "CCATTCGTCCCTGACT" = "MK-cell-3",
+  "TGTCCCAGTAAACACA" = "MK-cell-4")
+
+## pretty name for libraries
+pcr_lib_names = c(
+  original = "Original Library",
+  standard = "PCR",
+  biotinylated = "PCR +\n5' Biotin",
+  phosphorothioate = "PCR +\n5' Biotin +\n3' Phosphorothioates"
+  )
+
+pcr_cell_names <- list(
+  standard = c(
+    "Cell_4Bone_63_70" = "Bone Met Cell #4", 
+    "Cell_4Bone_27_61" = "Bone Met Cell #5",
+    "Cell_4Bone_34_48" = "Bone Met Cell #6",
+    "Cell_1Tumor_0_55" = "Primary Tumor Cell #2",
+    "Cell_1Tumor_7_50" = "Primary Tumor Cell #1",
+    "Cell_4Bone_30_23" = "Bone Met Cell #7",
+    "Cell_4Bone_61_22" = "Bone Met Cell #8",
+    "Cell_4Bone_66_9" = "Bone Met Cell #9",
+    "Cell_3Brain_47_38" = "Brain Met Cell #1",
+    "Cell_3Brain_14_46" = "Brain Met Cell #2"
+  ),
+  biotinylated = c(
+    "Cell_4Bone_63_70" = "Bone Met Cell #4", 
+    "Cell_4Bone_27_61" = "Bone Met Cell #5",
+    "Cell_4Bone_34_48" = "Bone Met Cell #6",
+    "Cell_1Tumor_0_55" = "Primary Tumor Cell #2",
+    "Cell_1Tumor_7_50" = "Primary Tumor Cell #1",
+    "Cell_3Brain_47_38" = "Brain Met Cell #1",
+    "Cell_3Brain_14_46" = "Brain Met Cell #2",
+    "Cell_4Bone_28_54" = "Bone Met Cell #1",
+    "Cell_4Bone_26_20" = "Bone Met Cell #2",
+    "Cell_4Bone_60_43" = "Bone Met Cell #3" 
+  ),
+  phosphorothioate = c(
+    "Cell_1Tumor_7_50" = "Primary Tumor Cell #1",
+    "Cell_3Brain_47_38" = "Brain Met Cell #1",
+    "Cell_4Bone_28_54" = "Bone Met Cell #1",
+    "Cell_4Bone_26_20" = "Bone Met Cell #2",
+    "Cell_4Bone_60_43" = "Bone Met Cell #3" 
+  )
+)
+
+
+p <- plot_umi_percents(filter(plt_dat$mouse_human,
+                         library != "lna_control"), 
+                  mh_cell_names,
+                  mh_lib_names)
+
+save_plot("mouse_human_cell_pulldown.pdf", p,
+          base_height = 6, base_width = 5.8)
+
+
+p <- plot_umi_percents(plt_dat$pbmc, 
+                  mk_cell_names,
+                  mk_lib_names)
+
+save_plot("pbmc_cell_pulldown.pdf", p,
+          base_height = 6, base_width = 6)
+
+umi_stats <- plt_dat$wafergen %>% 
+  filter(str_detect(class, 
+                    "Novel UMI in resampled|Previously Detected UMI\nfound")) %>% 
+  group_by(library) %>% 
+  do(broom::tidy(t.test(.$percent_class ~ .$class, alternative = "less"))) 
+
+
+p <- ggplot(plt_dat$wafergen,
+         aes(class, percent_class)) +
+         geom_jitter( width = 0.25) + 
+       labs(y = "Percent UMIs Observed") +
+      geom_segment(aes(x = 3, xend = 4,
+                       y = max(plt_dat$wafergen$percent_class) * 0.8),
+                       yend = max(plt_dat$wafergen$percent_class) * 0.8) + 
+       geom_text(data = umi_stats,
+                 aes(x = 3.5, 
+                     y = max(plt_dat$wafergen$percent_class) * 0.875,
+                     label = str_c("p = ", signif(p.value, 2))),
+                     inherit.aes = F) +
+       facet_wrap(~library, 
+                  labeller = labeller(library = pcr_lib_names)) +
+    scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
+    theme(axis.text.x = element_text(angle = 90,
+                                   hjust = 1,
+                                   vjust = 0.5),
+          axis.title.x = element_blank())
+  p 
+  
+save_plot("wafergen_cell_pulldown.pdf", p,
+          base_height = 6, base_width = 12)
+
+
+```
