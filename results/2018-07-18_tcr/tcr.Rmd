@@ -83,3 +83,211 @@ save_plot("contig_length_and_reads.pdf", plt,
           nrow = 1, ncol = 3)
 plt
 ```
+
+## Coverage
+
+Plot read coverage across the consensus TCR-alpha and beta chains. Fastqs from the resampled cells were realigned to the consensus sequences derived from cellranger VDJ output from the original library to compute coverage. The default output doesn't provide direct read alignments to the consensus sequences. 
+
+For visualization purposes first I will generate annotations of the TCR a/b consensus sequences. 
+
+```{r}
+library(Gviz)
+library(rtracklayer)
+library(GenomicAlignments)
+
+annot_fn <- file.path(data_dir, 
+                    "tcr_resampling",
+                    "cellranger",
+                    "original",
+"outs", "consensus_annotations.json")
+
+annots <- jsonlite::read_json(annot_fn)
+
+ids <- map(annots, ~.x[c("cdr3_start", 
+                         "cdr3_stop",
+                         "clonotype",
+                         "contig_name",
+                         "productive",
+                         "start_codon_pos")] %>% 
+  as_data_frame()) %>% 
+  bind_rows() %>% 
+  mutate(row = as.character(row_number()))
+
+annotations <- suppressWarnings(map(annots, ~.x$annotations) %>% 
+                                  map(., ~map_dfr(.x, ~.x$feature %>% 
+                                                as.data.frame(), 
+                                                .id = "annot_idx")) %>% 
+                                  bind_rows(.id = "row"))
+
+regions <- map(annots, ~.x$annotations) %>% 
+  map(., ~map_dfr(.x, ~.x[c("contig_match_end", "contig_match_start") ] %>% 
+                as.data.frame(), .id = "annot_idx")) %>% 
+  bind_rows(.id = "row")
+
+
+per_feature_annots <- inner_join(regions, annotations, by = c("row", "annot_idx"))
+per_feature_annots <- left_join(per_feature_annots, ids, by = "row")
+per_feature_annots <- dplyr::rename(per_feature_annots, 
+                                    chromosome = contig_name,
+                                    id = gene_name,
+                                    feature = region_type,
+                                    end = contig_match_end, 
+                                    start = contig_match_start)
+aTrack <- AnnotationTrack(range = per_feature_annots, 
+                          genome = "foo", 
+                          showFeatureID = T, 
+                          featureAnnotation = "feature",
+                          showId = T, 
+                          groupAnnotation = "id",
+                          just.group = "below",
+                          fill = color_palette[1],
+                          fontcolor.item = "white",
+                          fontcolor.group = "black",
+                          col.title = "black",
+                          col.line = color_palette[1],
+                          col = color_palette[1],
+                          lwd = 0.5,
+                          fontsize = 4)
+
+per_feature_cdr <- per_feature_annots %>% 
+  mutate(id = "CDR3") %>% 
+  dplyr::select(
+    chromosome,
+    start = cdr3_start,
+    end = cdr3_stop,
+    id) %>% 
+  unique()
+
+cdrTrack <- AnnotationTrack(range = per_feature_cdr, 
+                          name = "",
+                          genome = "foo", 
+                          stacking = "dense",
+                          showFeatureID = T, 
+                          featureAnnotation = "id",
+                          showId = F,
+                          fill = color_palette[1],
+                          fontcolor.item = "white",
+                          fontcolor.group = "black",
+                          col.title = "black",
+                          col = color_palette[1],
+                          fontsize = 6,
+                          lwd = 0.5)
+```
+
+
+```{r gviz}
+
+fa_fn <- file.path(db_dir, "tcr", "consensus.fasta")
+fa <- import(fa_fn)
+bam_fns <- dir(file.path(data_dir, 
+                     "tcr_resampling"),
+               pattern = "bam$",
+               recursive = T,
+               full.names = T
+               ) %>% 
+  str_subset("bowtie2")
+
+names(bam_fns) <- str_match(bam_fns,
+          str_replace(barcodes_10x, "-1", "")) %>% 
+  str_c(., "_", str_match(bam_fns, "original|resampled"))
+
+#reorder to place resampled after original for each cell
+bam_fns <- bam_fns[sort(names(bam_fns))]
+tcrb <- "clonotype1_consensus_1"
+tcra <- "clonotype2_consensus_1"
+
+plot_cov <- function(fasta, tcr, bam_fns, aTrack, cdrTrack){
+  axisTrack <- GenomeAxisTrack()
+  grange_region <- GRanges(tcr,
+                           IRanges(start(fasta[[tcr]])[1], 
+                                   end(fasta[[tcr]])[1]))
+  
+  param <- ScanBamParam(which=grange_region, 
+                        flag=scanBamFlag(isDuplicate=F))
+  bams <- map(bam_fns, ~readGAlignments(.x, 
+                                        param=param))
+  names(bams) <- names(bam_fns)
+  read_coverage <- map(bams, coverage)
+  read_coverage_gr <- map(read_coverage, 
+                          function(x){
+                            data.frame(
+                              chromosome = tcr,
+                              start = 1:length(x[[tcr]]),
+                              end = 1:length(x[[tcr]]),
+                              coverage = as.numeric(x[[tcr]])
+                            )})
+  
+  options(ucscChromosomeNames=FALSE)
+  
+ # ylims <- map(read_coverage_gr, ~log10(max(.x$score) + 1))
+  
+  read_coverage_gr[1:2] %>% 
+    bind_rows(., .id = "library") %>% 
+    spread(library, coverage) %>%  
+    GRanges() -> cell_1_dat
+  
+  read_coverage_gr[3:4] %>% 
+    bind_rows(., .id = "library") %>% 
+    spread(library, coverage) %>%  
+    GRanges() -> cell_2_dat
+  
+  dt1 <- DataTrack(range = cell_1_dat, 
+                   name = "Cell-1\n(Read Coverage)",
+                   groups = c("Original", "Resampled"),
+                   col = color_palette,
+                   legend = T,
+                   cex.axis= 1,
+                   genome = "foo",
+                   transformation = function(x){
+                     log(x + 1)
+                   })
+  
+  dt2 <- DataTrack(range = cell_2_dat, 
+                   name = "Cell-2\n(Read Coverage)",
+                   groups = c("Original", "Resampled"),
+                   col = color_palette,
+                   legend = F,
+                   genome = "foo",
+                   cex.axis= 1,
+                   transformation = function(x){
+                     log(x + 1)
+                   })                       
+  
+  options(scipen=16)
+  pdf(paste0(tcr, "_coverage.pdf"), width = 8, height = 4)
+  plotTracks(c(dt1, dt2, list(aTrack), list(cdrTrack)),
+             chromosome = tcr,
+             from = start(fasta[[tcr]])[1], 
+             to = end(fasta[[tcr]])[1],
+             type = "a",
+             stacking = "squish",
+             col.title = "black",
+             col.axis = "black",
+             background.title ="transparent",
+             lwd = 1)
+  dev.off()
+  
+  plotTracks(c(dt1, dt2, list(aTrack), list(cdrTrack)),
+             chromosome = tcr,
+             from = start(fasta[[tcr]])[1], 
+             to = end(fasta[[tcr]])[1],
+             type = "a",
+             stacking = "squish",
+             col.title = "black",
+             col.axis = "black",
+             background.title ="transparent",
+             lwd = 1.5)
+  
+}
+
+plot_cov(fasta = fa, tcr = tcra, 
+         bam_fns = bam_fns, 
+         aTrack = aTrack, 
+         cdrTrack = cdrTrack)
+
+plot_cov(fasta = fa, tcr = tcrb, 
+         bam_fns = bam_fns, 
+         aTrack = aTrack, 
+         cdrTrack = cdrTrack)
+```
+

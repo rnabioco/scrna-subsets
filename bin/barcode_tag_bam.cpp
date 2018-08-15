@@ -58,7 +58,6 @@ int main(int argc, char *argv[])
     std::cerr << "Usage: <in.bam> <in.bcs> <out.bam> <delim> <cbc_field> <umi_field> \n" << argv[0] ;
     return 1;
   } 
-  
   int cbc_field = std::stoi(argv[5]) - 1;
   int umi_field = std::stoi(argv[6]) - 1;
   char delim = argv[4][0] ;

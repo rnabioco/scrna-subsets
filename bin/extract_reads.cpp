@@ -26,7 +26,7 @@ void splitName(const std::string &name, char delim, std::vector<std::string> &el
 typedef std::vector<std::shared_ptr<std::ofstream> > fileNames ;
 
 // Make map with barcode as key and file open objects as value
-std::map<std::string, fileNames> getBarcodeMap(std::string fn_in){
+std::map<std::string, fileNames> getBarcodeMap(std::string fn_in, std::string prefix = ""){
   std::map<std::string, fileNames>  bc_map;
     std::ifstream	bc_file ;
     bc_file.open(fn_in) ;
@@ -38,8 +38,8 @@ std::map<std::string, fileNames> getBarcodeMap(std::string fn_in){
       auto bc = rtrim(line) ; 
       
       fileNames fqs ;
-      auto r1_fn = bc + "_R1.fastq" ;
-      auto r2_fn = bc + "_R2.fastq" ;
+      auto r1_fn = prefix + bc + "_R1.fastq" ;
+      auto r2_fn = prefix + bc + "_R2.fastq" ;
       
       // fstreams are not copyable, need to work with pointers
       auto r1 = std::make_shared<std::ofstream> (r1_fn); 
@@ -59,16 +59,21 @@ int main(int argc, char *argv[])
     gzFile fp, fp2;
     kseq_t *seq_1, *seq_2;
     std::string bc_fn ;
-    
+    std::string outpre ; 
     if (argc == 1) {
-      fprintf(stderr, "Usage: %s <in.seq1> <in.seq2> <barcodes.txt> \n", argv[0]);
+      fprintf(stderr, "Usage: %s <in.seq1> <in.seq2> <barcodes.txt> <output prefix> \n", argv[0]);
       return 1;
     }
     fp = gzopen(argv[1], "r"); 
     fp2 = gzopen(argv[2], "r"); 
     bc_fn = argv[3];
-    
-    auto bc_map = getBarcodeMap(bc_fn) ;
+
+    if (argc == 5){
+      outpre = std::string(argv[4]) ;
+    } else {
+      outpre = std::string("") ;
+    }
+    auto bc_map = getBarcodeMap(bc_fn, outpre) ;
     
     seq_1 = kseq_init(fp); 
     seq_2 = kseq_init(fp2); 
