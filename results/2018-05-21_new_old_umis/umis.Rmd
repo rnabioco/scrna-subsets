@@ -24,7 +24,6 @@ knitr::opts_chunk$set(fig.height = 5)
 
 ```{r, message=F, warning=F, echo=F}
 source("../../R/globals.R")
-color_palette = c("#bdbdbd", "#1F78B4")
 ```
 
 ## Determine umi replication
@@ -305,7 +304,6 @@ out_dat$wafergen <- out
 
 ```{r mouse_human_10x}
 cells <- list(
-  lna_control = c("GACGTTAGTGCCTGTG", "CTGATCCCATGACGGA"),
   mouse_human_cell_pulldown = c("GACGTTAGTGCCTGTG", "CTGATCCCATGACGGA")
   )
 

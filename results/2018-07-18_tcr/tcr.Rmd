@@ -141,7 +141,8 @@ This json file is formatted similarlly to the `consensus_annotations.json` that 
 library(Gviz)
 library(rtracklayer)
 library(GenomicAlignments)
-
+options(ucscChromosomeNames=FALSE)
+  
 annot_fn <- file.path(data_dir, 
                     "tcr_resampling",
                     "cellranger",
@@ -264,7 +265,7 @@ plot_cov <- function(fasta, tcr, bam_fns, aTrack, cdrTrack){
                               coverage = as.numeric(x[[tcr]])
                             )})
   
-  options(ucscChromosomeNames=FALSE)
+
   
  # ylims <- map(read_coverage_gr, ~log10(max(.x$score) + 1))
   

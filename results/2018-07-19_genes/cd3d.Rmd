@@ -348,6 +348,8 @@ library(GenomicRanges)
 library(GenomicAlignments)
 library("Gviz")
 library(rtracklayer)
+options(ucscChromosomeNames=FALSE)
+
 gtf_fn <- "~/Projects/shared_dbases/annotation/gencode.v25.annotation.gtf"
 bam_fn <- dir("~/bodhi/Projects/subsampled_scRNA/data/lna_gene",
               pattern = ".bam$",
@@ -382,6 +384,8 @@ names(bams) <- names(bam_fns)
 read_coverage <- map(bams, coverage)
 read_coverage_gr <- map(read_coverage, ~as(.x, "GRanges"))
 
+options(ucscChromosomeNames=FALSE)
+
 dtracks <- pmap(list(read_coverage_gr[libs],
                      names(read_coverage_gr[libs]),
                      palette_okabeito[1:3]),
@@ -399,7 +403,6 @@ grtrack <- GeneRegionTrack(txdb_hg,
                            name="CD3D",
                            col.title = "black")
 
-options(ucscChromosomeNames=FALSE)  
 options(scipen=16)
 pdf("cd3d_coverage.pdf", width = 6, height = 4)
 plotTracks(c(list(grtrack), 
