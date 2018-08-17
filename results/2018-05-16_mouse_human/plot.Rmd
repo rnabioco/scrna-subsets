@@ -1127,15 +1127,14 @@ umi_edit_dist <- bind_rows(umi_edit_dist,
                            .id = "library")
 
 umi_edit_dist <-  mutate(umi_edit_dist, 
-                          barcode_10x = factor(barcode_10x, 
-                              levels = cells[[resampled_lib]]))
+                         cells = str_c(barcode_10x, "-1"))
 
-plt <- ggplot(umi_edit_dist, aes(barcode_10x, 
+plt <- ggplot(umi_edit_dist, aes(cells, 
                           min_ed)) + 
   geom_boxplot(coef = Inf) +
   scale_x_discrete(labels = cell_names) +
-  facet_wrap(~library, scales = "free_x", 
-             labeller = labeller(library = lib_names)) +
+  #facet_wrap(~library, scales = "free_x", 
+  #           labeller = labeller(library = lib_names)) +
   scale_y_continuous(breaks= scales::pretty_breaks()) +
   labs(y = "Minimum edit distance\noriginal vs. new UMIs") +
   theme(axis.text.x = element_text(angle = 90,
@@ -1150,15 +1149,59 @@ rm(umi_seqs)
 
 ```{r plt_tsne}
 sobj <- readRDS("original_sobj.rds")
-plt <- TSNEPlot(sobj, 
-                colors.use = c(brewer.pal(12, "Paired"), 
-                               brewer.pal(9, "Set1")),
-                do.label = T) + 
-  labs(title = "NIH3T3 and 293T") +
-  theme(legend.position = "none")
-plt
-save_plot("original_cells_tsne.pdf", plt, 
-          base_height = 4.25, base_width = 4.25)
+
+mdat_tbl <- sc_objs$original_10x$meta_dat %>% 
+   select(barcode_10x, og_purity_umis, resampled) %>% 
+  mutate(species = ifelse(og_purity_umis > 0.80,
+                          "Human",
+                          ifelse(og_purity_umis < 0.20,
+                                 "Mouse",
+                                 "Multiplet")))
+  
+mdat <- as.data.frame(mdat_tbl) %>% 
+  dplyr::select(-resampled) %>% 
+  tibble::column_to_rownames("barcode_10x")
+sobj <- AddMetaData(sobj, mdat)
+sobj <- SetAllIdent(sobj, "species")
+
+plt_dat <- GetCellEmbeddings(sobj, "tsne") %>% 
+  as.data.frame() %>% 
+  tibble::rownames_to_column("cell") %>% 
+  left_join(mdat_tbl, by = c("cell" = "barcode_10x"))
+
+og_tsne_plt <- ggplot(plt_dat, 
+                          aes(tSNE_1, tSNE_2)) + 
+  geom_point(aes(color = species), size = 0.1) + 
+  scale_color_manual(values = palette_okabeito,
+                     name = "") +
+  geom_text_repel(data = filter(plt_dat, resampled),
+                  aes(label = "."),
+                  color = "black",
+                  size = 0,
+                  force = 10,
+                  min.segment.length = 0,
+                  point.padding = 1.0,
+                  seed = 42,
+                  arrow = arrow(length = unit(0.3,
+                                              "line"), 
+                                angle = 35,
+                                type = "open", 
+                                ends = "last")
+  ) +
+  labs(title = "",
+       x = "tSNE 1",
+       y = "tSNE 2") +
+  theme_cowplot() + 
+  guides(color = guide_legend(nrow = 1, 
+                              ncol = 3,
+                              override.aes = list(size = 4))) + 
+  theme(legend.position = "top",
+        legend.justification = c("right", "top"),
+        legend.box.just = "right")  
+
+save_plot("original_cells_tsne.pdf", og_tsne_plt, 
+          base_aspect_ratio = 0.9,
+          base_height = 4.5)
 
 plts <- FeaturePlot(sobj, c("mm38::Malat1", "hg38::MALAT1"), do.return = T)
 plt <- plot_grid(plotlist = plts, nrow = 1)
@@ -1194,15 +1237,15 @@ plt <- ggplot(tsne_dat,
        x = "tSNE 1",
        y = "tSNE 2") +
   theme_cowplot() + 
-  guides(color = guide_legend(nrow = 3, 
-                              ncol = 1,
+  guides(color = guide_legend(nrow = 1, 
+                              ncol = 3,
                               override.aes = list(size = 4))) + 
-  theme(legend.position = c(1.05, 1.05),
-        legend.justification = c("right", "top"),
-        legend.box.just = "right")  
+  theme(legend.justification = c("right", "top"),
+        legend.box.just = "right",
+        legend.position = "top")  
 
 save_plot("original_resampled_cells_mouse_human.pdf", plt, 
-          base_height = 4.25, base_width = 8.5)
+          base_height = 5, base_aspect_ratio = .9)
 
 
 og_cell_dat <- tsne_dat %>% 
@@ -1250,14 +1293,15 @@ resampled_cells <- ggplot(tsne_dat,
         legend.justification = c("right", "top"),
         legend.box.just = "right")  
 
-plt_out <- plot_grid(plt, 
+plt_out <- plot_grid(og_tsne_plt, 
+                     plt, 
                      resampled_cells,
-                     ncol = 2)
+                     ncol = 3)
 plt_out
 
 save_plot("resampled_tsne.pdf", plt_out, 
-          nrow = 1, ncol = 2,
-          base_height = 5.5, base_width = 4.25)
+          nrow = 1, ncol = 3,
+          base_height = 4.5, base_aspect_ratio = 0.9)
 ```
 
 

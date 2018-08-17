@@ -529,11 +529,11 @@ mdata_not_sub <- filter(mdata, !resampled) %>%
 
 mdata <- bind_rows(list(mdata_sub, mdata_ogsub, mdata_not_sub)) %>% 
   unique() %>% 
-  mutate(species = ifelse(proportion_human > 0.90,
+  mutate(species = ifelse(proportion_human > 0.80,
                           "Human",
-                          ifelse(proportion_mouse > 0.90,
+                          ifelse(proportion_mouse > 0.80,
                                  "Mouse",
-                                 "Doublet"))) %>% 
+                                 "Multiplet"))) %>% 
   as.data.frame() %>% 
   tibble::column_to_rownames("barcode_10x") %>% 
   select(-resampled) 

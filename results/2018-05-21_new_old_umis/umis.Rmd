@@ -177,7 +177,7 @@ out <- out %>%
                             "Previously Detected UMI",
                             "Novel UMI not found in any cells",
                             "Previously Detected UMI\nfound in multiple cells",
-                            "Novel UMI in resampled cell\npreviously detected in original library")))
+                            "Novel UMI in resampled cell\npreviously detected in other cells\nin original library")))
 plot_umi_percents <- function(df, cells, libs){
   
   if(missing(cells)){
@@ -293,7 +293,7 @@ out <- out %>%
                             "Previously Detected UMI",
                             "Novel UMI not found in any cells",
                             "Previously Detected UMI\nfound in multiple cells",
-                            "Novel UMI in resampled cell\npreviously detected in original library")))
+                            "Novel UMI in resampled cell\npreviously detected in other cells\nin original library")))
 
 out_dat$wafergen <- out
   
@@ -346,7 +346,7 @@ out <- out %>%
                             "Previously Detected UMI",
                             "Novel UMI not found in any cells",
                             "Previously Detected UMI\nfound in multiple cells",
-                            "Novel UMI in resampled cell\npreviously detected in original library")))
+                            "Novel UMI in resampled cell\npreviously detected in other cells\nin original library")))
 
 out_dat$mouse_human <- out
 ```

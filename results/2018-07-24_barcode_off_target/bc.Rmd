@@ -60,6 +60,7 @@ plot_distances <- function(query_seqs,
                            lib_data_dir,
                            bc_metadat,
                            cell_names,
+                           .ncol = 1, 
                            probe_prefix = str_sub(p5_primer_seqs, -4, -1),
                            barcode_prefix = str_sub(p5_primer_seqs, -16, -1)
 ){
@@ -201,7 +202,7 @@ plot_distances <- function(query_seqs,
                       })
   hdist_plot <- plot_grid(plotlist = hdist_plots, nrow = 1)
   
-  plt <- plot_grid(sw_plot, hdist_plot, ncol = 1)
+  plt <- plot_grid(sw_plot, hdist_plot, ncol = .ncol)
   plt
 }
 
@@ -211,12 +212,13 @@ plt <- plot_distances(cells,
                resampled_lib,
                lib_data_dir,
                bc_metadat,
-               cell_names)
+               cell_names,
+               .ncol = 2)
 
 save_plot(str_c(resampled_lib, "_bc_dist.pdf"),
           plt, 
-          nrow = 2, 
-          ncol = 1,
+          nrow = 1, 
+          ncol = 2,
           base_height = 4,
           base_aspect_ratio = 2)
 plt
@@ -264,7 +266,8 @@ plt <- plot_distances(cells,
                       resampled_lib,
                       lib_data_dir,
                       bc_metadat,
-                      cell_names)
+                      cell_names,
+                      .ncol = 1)
 
 
 save_plot(str_c(resampled_lib, "_bc_dist.pdf"),

@@ -1039,23 +1039,22 @@ umi_edit_dist <- map2(new_umis,
 
 umi_edit_dist <- bind_rows(umi_edit_dist, 
                            .id = "library")
-umi_edit_dist <-  mutate(umi_edit_dist, 
-                          barcode_10x = factor(barcode_10x, 
-                              levels = cells[[resampled_lib]]))
 
-plt <- ggplot(umi_edit_dist, aes(barcode_10x, 
+umi_edit_dist <-  mutate(umi_edit_dist, 
+                         cells = str_c(barcode_10x, "-1"))
+
+plt <- ggplot(umi_edit_dist, aes(cells, 
                           min_ed)) + 
   geom_boxplot(coef = Inf) +
   scale_x_discrete(labels = cell_names) +
-  facet_wrap(~library, scales = "free_x", 
-             labeller = labeller(library = lib_names)) +
+  #facet_wrap(~library, scales = "free_x", 
+  #           labeller = labeller(library = lib_names)) +
   scale_y_continuous(breaks= scales::pretty_breaks()) +
   labs(y = "Minimum edit distance\noriginal vs. new UMIs") +
   theme(axis.text.x = element_text(angle = 90,
                                    hjust = 1, 
                                    vjust = 0.5),
         axis.title.x = element_blank())
-
 save_plot("umi_edit_distance.pdf", plt)
 ```
 
