@@ -22,6 +22,11 @@ barcodes_10x <- c(
   "AAGTCTGAGAAACCGC-1",
   "CTAGCCTGTCTAGCGC-1"
 )
+
+pretty_cell_names <- c(
+  "AAGTCTGAGAAACCGC-1" = "Cell-1",
+  "CTAGCCTGTCTAGCGC-1" = "Cell-2"
+)
 ```
 
 ```{r}
@@ -34,9 +39,9 @@ fns <- dir(file.path(data_dir,
 names(fns) <- c("original", "resampled")
 annotations <- map_dfr(fns, read_csv, .id = "library")
 
-annotations <- filter(annotations, barcode %in% barcodes_10x)
+selected_annotations <- filter(annotations, barcode %in% barcodes_10x)
 
-plot_dat <- filter(annotations,
+plot_dat <- filter(selected_annotations,
                    chain != "Multi",
                    cdr3 == "CASSFSTCSANYGYTF" | 
                      cdr3 == "CAVSDLEPNSSASKIIF",
@@ -82,6 +87,26 @@ plt <- plot_grid(len_plt, read_plt, umi_plt, nrow = 1)
 save_plot("contig_length_and_reads.pdf", plt, 
           nrow = 1, ncol = 3)
 plt
+```
+
+```{r make_tbl}
+plt_tbl <- plot_dat %>% 
+  mutate(pretty_cell_name = pretty_cell_names[barcode],
+         pretty_lib_name = ifelse(library == "original",
+                                  "Original Library",
+                                  "Resampled Library")) %>% 
+  dplyr::select(pretty_cell_name, 
+                chain,
+                pretty_lib_name, 
+                full_length,
+                length,
+                reads,
+                umis) %>% 
+  group_by(chain) %>% 
+  arrange(pretty_cell_name, .by_group = T)
+
+clipr::write_clip(plt_tbl)
+plt_tbl
 ```
 
 ```{r read_umi_enrichment}

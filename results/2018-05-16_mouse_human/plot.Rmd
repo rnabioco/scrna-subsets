@@ -137,7 +137,7 @@ plt <- ggplot(sc_metadat, aes(total_umis, cDNA_duplication)) +
 plt
 save_plot("cDNA_duplication.pdf", 
           plt, 
-          base_aspect_ratio = 1.6)
+          base_aspect_ratio = 1.7)
 ```
 
 
@@ -217,7 +217,7 @@ read <- ggplot(resampled_metadat,
        aes(cell_id, norm_read_proportion, colour = resampled)) + 
   geom_point() + 
   labs(x = "Cell", 
-       y = expression(paste( " Log"[2], " normalized reads ", frac("resampled", "original")))) +
+       y = expression(paste( " Log"[2], " normalized reads ", frac("Resampled", "Original")))) +
   scale_colour_manual(name = "resampled:", values = color_palette) +
   facet_wrap(~library, nrow = 1) + 
   theme_cowplot(font_size = 16, line_size = 1) +
@@ -229,7 +229,7 @@ umi <- ggplot(resampled_metadat,
        aes(cell_id, norm_umi_proportion, colour = resampled)) + 
   geom_point() + 
   labs(x = "Cell", 
-       y = expression(paste( "Log"[2], " normalized UMIs ", frac("resampled", "original")))) +
+       y = expression(paste( "Log"[2], " normalized UMIs ", frac("Resampled", "Original")))) +
   scale_colour_manual(name = "resampled:", values = color_palette) +
   facet_wrap(~library, nrow = 1) + 
   theme_cowplot(font_size = 16, line_size = 1) +
@@ -270,7 +270,7 @@ umi_plots <- map(split(resampled_metadat, resampled_metadat$library),
                      ) + 
                      labs(x = "Abundance in original library\n (UMIs)", 
                           y = expression(paste( "Log"[2], " UMIs ", 
-                                                frac("resampled", "original")))) +
+                                                frac("Resampled", "Original")))) +
                      scale_x_continuous(labels = scales::comma) +      
                      scale_colour_manual(name = "resampled:", values = color_palette) +
                      # facet_wrap(~library, nrow = 1) + 
@@ -289,7 +289,7 @@ ggplot(resampled_metadat, aes(resampled,
   geom_boxplot(coef = Inf) + 
   facet_wrap(~library, nrow = 1) +
   xlab("Selected for Reamplification") +
-  ylab(expression(paste( "Log"[2], " Reads ", frac("resampled", "original")))) +
+  ylab(expression(paste( "Log"[2], " Reads ", frac("Resampled", "Original")))) +
   scale_fill_manual(name = "resampled:",
                     values = color_palette) +
   theme_cowplot(font_size = 16, line_size = 0.5) +
@@ -306,7 +306,7 @@ ggplot(resampled_metadat, aes(resampled,
   geom_boxplot(coef = Inf) + 
   facet_wrap(~library, nrow = 1) +
   xlab("Selected for Reamplification") +
-  ylab(expression(paste( "Log"[2], " UMIs ", frac("resampled", "original")))) +
+  ylab(expression(paste( "Log"[2], " UMIs ", frac("Resampled", "Original")))) +
   scale_fill_manual(name = "resampled:",
                     values = color_palette) +
   theme_cowplot(font_size = 16, line_size = 0.5) +
@@ -323,7 +323,7 @@ ggplot(resampled_metadat, aes(resampled,
   geom_boxplot(coef = Inf) + 
   facet_wrap(~library, nrow = 1) +
   xlab("Selected for Reamplification") +
-  ylab(expression(paste( "Log"[2], " normalized Reads ", frac("resampled", "original")))) +
+  ylab(expression(paste( "Log"[2], " normalized Reads ", frac("Resampled", "Original")))) +
   scale_fill_manual(name = "resampled:",
                     values = color_palette) +
   theme_cowplot(font_size = 16, line_size = 0.5) +
@@ -340,7 +340,7 @@ ggplot(resampled_metadat, aes(resampled,
   geom_boxplot(coef = Inf) + 
   facet_wrap(~library, nrow = 1) +
   xlab("Selected for Reamplification") +
-  ylab(expression(paste( "Log"[2], " normalized UMIs ", frac("resampled", "original")))) +
+  ylab(expression(paste( "Log"[2], " normalized UMIs ", frac("Resampled", "Original")))) +
   scale_fill_manual(name = "resampled:",
                     values = color_palette) +
   theme_cowplot(font_size = 16, line_size = 0.5) +

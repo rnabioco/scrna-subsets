@@ -339,6 +339,8 @@ plt <- ggplot(plt_dat,
 save_plot("gene_detection_rate.pdf", plt,
           base_aspect_ratio = 3)
 
+plt_dat %>% 
+  filter(gene == "CD3D")
 ```
 
 

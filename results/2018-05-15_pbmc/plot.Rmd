@@ -114,7 +114,7 @@ plt <- ggplot(sc_metadat, aes(total_umis, cDNA_duplication)) +
   geom_point(aes(color = resampled), size = 0.5) +
   labs(x = expression(paste("# of UMIs")),
        y = "Sequencing saturation") + 
-  scale_x_log10(labels = scales::comma) +
+  scale_x_continuous(labels = scales::comma) +
   scale_color_manual(values = color_palette) +
   geom_text_repel(data = filter(sc_metadat, resampled),
                                      aes(label = ".",
@@ -135,11 +135,15 @@ plt <- ggplot(sc_metadat, aes(total_umis, cDNA_duplication)) +
   theme_cowplot(font_size = 16, line_size = 1)  +
   theme(legend.position = "none",
         plot.margin = unit(c(5.5, 20.5, 5.5, 5.5), 
-                           "points")) 
+                           "points"),
+        axis.text.x = element_text(angle = 90, 
+                                   hjust = 1,
+                                   vjust = 0.5)) 
 
 plt
-save_plot("cDNA_duplication.pdf", plt, 
-          base_aspect_ratio = 1.25)
+save_plot("cDNA_duplication.pdf", plt,
+          base_height = 4,
+          base_aspect_ratio = 1.5)
 ```
 
 ## Read and umi counts per library
@@ -232,7 +236,7 @@ read <- ggplot(resampled_metadat,
   geom_point() + 
   labs(x = "Cell", 
        y = expression(paste( " Log"[2], " normalized reads ", 
-                             frac("resampled", "original")))) +
+                             frac("Resampled", "Original")))) +
   scale_colour_manual(name = "resampled:", values = color_palette) +
   facet_wrap(~library, nrow = 1) + 
   theme_cowplot(font_size = 16, line_size = 1) +
@@ -244,7 +248,7 @@ umi <- ggplot(resampled_metadat,
        aes(cell_id, norm_umi_proportion, colour = resampled)) + 
   geom_point() + 
   labs(x = "Cell", 
-       y = expression(paste( "Log"[2], " normalized UMIs ", frac("resampled", "original")))) +
+       y = expression(paste( "Log"[2], " normalized UMIs ", frac("Resampled", "Original")))) +
   scale_colour_manual(name = "resampled:", values = color_palette) +
   facet_wrap(~library, nrow = 1) + 
   theme_cowplot(font_size = 16, line_size = 1) +
@@ -263,7 +267,7 @@ umi <- ggplot(filter(resampled_metadat, library %in% resampled_libs),
        aes(cell_id, norm_umi_proportion, colour = resampled)) + 
   geom_point() + 
   labs(x = "Cell", 
-       y = expression(paste( "Log"[2], " normalized UMIs ", frac("resampled", "original")))) +
+       y = expression(paste( "Log"[2], " normalized UMIs ", frac("Resampled", "Original")))) +
   scale_colour_manual(name = "resampled:", values = color_palette) +
   facet_wrap(~library, nrow = 1) + 
   theme_cowplot(font_size = 16, line_size = 1) +
@@ -301,8 +305,8 @@ umi_plots <- map(split(resampled_metadat,
                      labs(x = "Abundance in original library\n (UMIs)", 
                           
                           y = expression(paste( "Log"[2], " UMIs ", 
-                                                frac("resampled",
-                                                     "original")))) +
+                                                frac("Resampled",
+                                                     "Original")))) +
                      scale_x_continuous(labels = scales::comma) +      
                      scale_colour_manual(name = "resampled:", 
                                          values = color_palette) +
@@ -323,7 +327,7 @@ ggplot(resampled_metadat, aes(resampled,
   geom_boxplot(coef = Inf) + 
   facet_wrap(~library, nrow = 1) +
   xlab("Selected for Reamplification") +
-  ylab(expression(paste( "Log"[2], " Reads ", frac("resampled", "original")))) +
+  ylab(expression(paste( "Log"[2], " Reads ", frac("Resampled", "Original")))) +
   scale_fill_manual(name = "resampled:",
                     values = color_palette) +
   theme_cowplot(font_size = 16, line_size = 0.5) +
@@ -340,7 +344,7 @@ ggplot(resampled_metadat, aes(resampled,
   geom_boxplot(coef = Inf) + 
   facet_wrap(~library, nrow = 1) +
   xlab("Selected for Reamplification") +
-  ylab(expression(paste( "Log"[2], " UMIs ", frac("resampled", "original")))) +
+  ylab(expression(paste( "Log"[2], " UMIs ", frac("Resampled", "Original")))) +
   scale_fill_manual(name = "resampled:",
                     values = color_palette) +
   theme_cowplot(font_size = 16, line_size = 0.5) +
@@ -357,7 +361,7 @@ ggplot(resampled_metadat, aes(resampled,
   geom_boxplot(coef = Inf) + 
   facet_wrap(~library, nrow = 1) +
   xlab("Selected for Reamplification") +
-  ylab(expression(paste( "Log"[2], " normalized Reads ", frac("resampled", "original")))) +
+  ylab(expression(paste( "Log"[2], " normalized Reads ", frac("Resampled", "Original")))) +
   scale_fill_manual(name = "resampled:",
                     values = color_palette) +
   theme_cowplot(font_size = 16, line_size = 0.5) +
@@ -374,7 +378,7 @@ ggplot(resampled_metadat, aes(resampled,
   geom_boxplot(coef = Inf) + 
   facet_wrap(~library, nrow = 1) +
   xlab("Selected for Reamplification") +
-  ylab(expression(paste( "Log"[2], " normalized UMIs ", frac("resampled", "original")))) +
+  ylab(expression(paste( "Log"[2], " normalized UMIs ", frac("Resampled", "Original")))) +
   scale_fill_manual(name = "resampled:",
                     values = color_palette) +
   theme_cowplot(font_size = 16, line_size = 0.5) +
@@ -922,15 +926,12 @@ plt
 
 targeted <- umis_recovered %>% 
   dplyr::filter(resampled) %>% 
-  mutate(cell_id = str_c(barcode_10x, "-1"))
+  mutate()
 
 plt_dat <- umis_recovered %>% 
-  dplyr::filter(!resampled) %>% 
-  group_by(class) %>% 
-  summarize(count = mean(count)) %>% 
-  mutate(cell_id = "Not targeted\nbarcodes\n(mean)") %>% 
-  bind_rows(targeted, .) %>% 
-  mutate(class = ifelse(class == "new_umis",
+  dplyr::filter(resampled) %>% 
+  mutate(cell_id = str_c(barcode_10x, "-1"),
+         class = ifelse(class == "new_umis",
                         "Newly\ndetected\nUMIs",
                         ifelse(class == "shared_umis",
                                "Previously\ndetected\nUMIs",
@@ -1242,7 +1243,8 @@ save_plot("original_with_resampled_mkcells_tsne.pdf", plt,
           base_height = 4.25, base_width = 4.25)
 
 ### Plot original and resampled close-up
-pf4 <- plot_feature(sobj, gene = "PF4", pt.alpha = 1, pt.size = 0.1) +
+pf4 <- plot_feature(sobj, gene = "PF4", legend_name = "PF4",
+                    pt.alpha = 1, pt.size = 0.1) +
   labs(title = "",
        x = "tSNE 1",
        y = "tSNE 2") + 
@@ -1292,7 +1294,7 @@ resampled_cells <- ggplot(tsne_dat,
   theme_cowplot() + 
   guides(ncol = 1, 
          color = guide_legend(override.aes = list(size = 4))) + 
-  theme(legend.pos = "right") 
+  theme(legend.pos = "none") 
 
 
 close_up <- ggplot(tsne_dat, 
@@ -1318,13 +1320,13 @@ close_up <- ggplot(tsne_dat,
   theme_cowplot() + 
   guides(ncol = 1, 
          color = guide_legend(override.aes = list(size = 4))) + 
-  theme(legend.pos = "right")
+  theme(legend.pos = "none")
   
 plt <- plot_grid(pf4, resampled_cells, 
-          close_up, nrow = 1, rel_widths = c(0.85, 1, 1))
+          close_up, nrow = 1, rel_widths = c(1.1, 1, 1))
 
 save_plot("resampled_vs_original_closeup.pdf", 
-          plt, nrow = 1, ncol = 3, base_aspect_ratio = 1.2)
+          plt, nrow = 1, ncol = 3, base_aspect_ratio = 1)
 ```
 
 

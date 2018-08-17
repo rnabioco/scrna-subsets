@@ -22,7 +22,6 @@ knitr::opts_chunk$set(message = FALSE)
 
 ```{r, message=F, warning=F, echo=F}
 source("../../R/globals.R")
-
 library(kentr)
 library(ggrepel)
 ```
@@ -52,14 +51,18 @@ cell_names = c(
   "GACGTTAGTGCCTGTG" = "Mouse Cell",
   "CTGATCCCATGACGGA" = "Human Cell")
 
-plot_distances <- function(cells,
+p5_primer_seqs <- "AATGATACGGCGACCACCGAGATCTACACTCTTTCCCTACACGACGCTCTTCCGATCT"
+
+plot_distances <- function(query_seqs,
                            libs,
                            reflib,
                            resampled_lib,
                            lib_data_dir,
                            bc_metadat,
-                           cell_names) {
-  
+                           cell_names,
+                           probe_prefix = str_sub(p5_primer_seqs, -4, -1),
+                           barcode_prefix = str_sub(p5_primer_seqs, -16, -1)
+){
   bc_counts <- map(libs,
                    ~read_tsv(file.path(lib_data_dir,
                                        .x,
@@ -82,92 +85,120 @@ plot_distances <- function(cells,
   
   cellbc_norm <- semi_join(bc_counts_norm,
                            bc_metadat, 
-                           by = c("barcode" = "barcode_10x"))
+                           by = c("barcode" = "barcode_10x")) %>% 
+    dplyr::rename(cell = barcode)
   
-  sw_res <- map_dfr(cells, function(x){
-    res <- get_sw(x, unique(bc_counts$barcode))
-    res$probe <- x
-    res$barcode <- unique(bc_counts$barcode)
-    res
-  }) %>% 
+  probe_seqs <- str_c(probe_prefix, cells)
+  ref_seqs <- str_c(barcode_prefix, unique(bc_counts$barcode))
+  
+  sw_res <- map_dfr(probe_seqs, 
+                    function(x){
+                      res <- get_sw(x, 
+                                    ref_seqs)
+                      res$query <- x
+                      res$reference <- ref_seqs
+                      res <- mutate(res, 
+                                    cell = str_replace(query, 
+                                                       probe_prefix, 
+                                                       ""),
+                                    barcode = str_replace(reference,
+                                                          barcode_prefix, 
+                                                          ""))
+                      res
+                      
+                    }) %>% 
     tbl_df()
   
-  h_res <- map_dfr(cells, function(x){
-    res <- data_frame(hdist = get_hamming(x, unique(bc_counts$barcode)),
-                      probe = x,
-                      barcode = unique(bc_counts$barcode))
-    res
-  }) %>% 
+  # for hammming distance only directly compare the 20nt hyb region
+  ref_seqs <- str_c(probe_prefix, unique(bc_counts$barcode))
+  h_res <- map_dfr(probe_seqs, 
+                   function(x){
+                     res <- data_frame(hdist = get_hamming(x, 
+                                                           ref_seqs),
+                                       query = x,
+                                       reference = ref_seqs)
+                     res <- mutate(res, 
+                                   cell = str_replace(query, probe_prefix, ""),
+                                   barcode = str_replace(reference,
+                                                         probe_prefix, 
+                                                         ""))
+                     res
+                   }) %>% 
     tbl_df()
+  
   
   cellbc_norm_dist <- left_join(cellbc_norm,
                                 sw_res, 
-                                by = "barcode")
+                                by = c("cell" = "barcode"))
   
   cellbc_norm_dist <-  left_join(cellbc_norm_dist,
                                  h_res, 
-                                 by = c("barcode", "probe"))
+                                 by = c("cell" = "barcode", 
+                                        "cell.y" = "cell"))
   
   cellbc_norm_dist <- mutate(cellbc_norm_dist,
-                             resampling_probe = barcode %in% cells)
+                             resampling_probe = cell %in% cells)
   
   ## set aside df for labeling cells with enrichment > 2 fold
   
   enriched_bcs <- cellbc_norm_dist %>% 
     filter(bc_enrichment > 1)
   
-  sw_plots <- map(cells,
-                  function(cell){
-                    tmp <- filter(cellbc_norm_dist,
-                                  probe == cell,
-                                  !(resampling_probe == T & barcode != cell))
-                    
-                    enriched_bcs <- tmp %>% 
-                      filter(bc_enrichment > 1)
-                    
-                    ggplot(tmp,
-                           aes(sw_score,
-                               bc_enrichment)) +
-                      geom_point(aes(color = resampling_probe)) +
-                      scale_color_manual(values = color_palette) + 
-                      facet_wrap(~probe, labeller = as_labeller(cell_names)) + 
-                      geom_text_repel(data = enriched_bcs,
-                                      aes(label = barcode),
-                                      force = 10, 
-                                      arrow = arrow(length = unit(0.03, "npc"), 
-                                                    type = "closed", ends = "first"),
-                                      size = 2) +
-                      labs(x = "Alignment Score",
-                           y = expression(paste("Barcode enrichment log"[2]))) +
-                      theme(legend.pos = "none")
-                  })
+  sw_plots <- map2(probe_seqs,
+                   cells,
+                   function(probe_seq, cell_seq){
+                     tmp <- filter(cellbc_norm_dist,
+                                    query.x == probe_seq,
+                                   !(resampling_probe == T & 
+                                       cell != cell_seq))
+                     enriched_bcs <- tmp %>% 
+                       filter(bc_enrichment > 1)
+                     
+                     ggplot(tmp,
+                            aes(sw_score,
+                                bc_enrichment)) +
+                       geom_point(aes(color = resampling_probe)) +
+                       scale_color_manual(values = color_palette) + 
+                       facet_wrap(~cell.y, labeller = as_labeller(cell_names)) + 
+                       geom_text_repel(data = enriched_bcs,
+                                       aes(label = cell),
+                                       force = 10, 
+                                       arrow = arrow(length = unit(0.03,
+                                                                   "npc"), 
+                                                     type = "closed", 
+                                                     ends = "first"),
+                                       size = 2) +
+                       labs(x = "Alignment Score",
+                            y = expression(paste("Barcode enrichment log"[2]))) +
+                       theme(legend.pos = "none")
+                   })
   sw_plot <- plot_grid(plotlist = sw_plots, nrow = 1)
   
-  hdist_plots <- map(cells,
-                     function(cell){
-                       tmp <- filter(cellbc_norm_dist,
-                                     probe == cell,
-                                     !(resampling_probe == T & barcode != cell))
-                       
+  hdist_plots <- map2(probe_seqs, cells,
+                      function(probe_seq, cell_seq){
+                        tmp <- filter(cellbc_norm_dist,
+                                    query.x == probe_seq,
+                                   !(resampling_probe == T & 
+                                       cell != cell_seq))
                        enriched_bcs <- tmp %>% 
                          filter(bc_enrichment > 1)
-                       
-                       ggplot(tmp,
-                              aes(hdist,
-                                  bc_enrichment)) +
-                         geom_point(aes(color = resampling_probe)) +
-                         scale_color_manual(values = color_palette) + 
-                         facet_wrap(~probe, labeller = as_labeller(cell_names)) + 
-                         geom_text_repel(data = enriched_bcs,
-                                         aes(label = barcode),
-                                         force = 10, 
-                                         arrow = arrow(length = unit(0.03, "npc"), 
-                                                       type = "closed", ends = "first"),
-                                         size = 2) +
-                         labs(x = "Hamming Distance",
-                              y = expression(paste("Barcode enrichment log"[2]))) +
-                         theme(legend.pos = "none")
-                     })
+                        
+                        ggplot(tmp,
+                               aes(hdist,
+                                   bc_enrichment)) +
+                          geom_point(aes(color = resampling_probe)) +
+                          scale_color_manual(values = color_palette) + 
+                          facet_wrap(~cell.y, labeller = as_labeller(cell_names)) + 
+                          geom_text_repel(data = enriched_bcs,
+                                          aes(label = cell),
+                                          force = 10, 
+                                          arrow = arrow(length = unit(0.03, "npc"), 
+                                                        type = "closed", ends = "first"),
+                                          size = 2) +
+                          labs(x = "Hamming Distance",
+                               y = expression(paste("Barcode enrichment log"[2]))) +
+                          theme(legend.pos = "none")
+                      })
   hdist_plot <- plot_grid(plotlist = hdist_plots, nrow = 1)
   
   plt <- plot_grid(sw_plot, hdist_plot, ncol = 1)
