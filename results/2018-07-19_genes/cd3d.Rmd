@@ -352,6 +352,15 @@ library("Gviz")
 library(rtracklayer)
 options(ucscChromosomeNames=FALSE)
 
+lna_probe <- "AGTTCGGTGACCTGGCTTTA"
+dna_probe <- "CAGGCTGATAGTTCGGTGACCTGGCTTTATCTACTGGATG"
+
+probe_locs <- tribble(
+  ~chrom, ~start, ~end, ~strand, ~probe,
+  "chr11", 118342633, 118342652, "-", "LNA probe",
+  "chr11", 118342622, 118342661, "-", "DNA probe"
+)
+
 gtf_fn <- "~/Projects/shared_dbases/annotation/gencode.v25.annotation.gtf"
 bam_fn <- dir("~/bodhi/Projects/subsampled_scRNA/data/lna_gene",
               pattern = ".bam$",
@@ -403,17 +412,41 @@ grtrack <- GeneRegionTrack(txdb_hg,
                            genome = "hg38", 
                            chromosome="chr11", 
                            name="CD3D",
+                           stacking = "dense",
                            col.title = "black")
+
+probe_feature <- probe_locs %>% 
+  dplyr::select(
+    chromosome = chrom,
+    start,
+    end,
+    strand,
+    id = probe)
+
+probeTrack <- AnnotationTrack(range = probe_feature, 
+                          name = "",
+                          genome = "hg38", 
+                          stacking = "squish",
+                          showFeatureID = F, 
+                          groupAnnotation = "id",
+                          just.group = "right",
+                          showId = T,
+                          fill = palette_okabeito[5],
+                          shape = "fixedArrow",
+                          fontcolor.item = "white",
+                          fontcolor.group = "black",
+                          col.title = "black",
+                          col =  palette_okabeito[5])
 
 options(scipen=16)
 pdf("cd3d_coverage.pdf", width = 6, height = 4)
 plotTracks(c(list(grtrack), 
+             probeTrack,
              dtracks),
            chromosome = "chr11",
            from = cd3d_coords$start,
            to = cd3d_coords$end,
            type = "a",
-           stacking = "dense",
            reverseStrand = TRUE, 
            col.title = "black",
            col.axis = "black",
