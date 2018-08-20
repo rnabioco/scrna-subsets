@@ -14,15 +14,24 @@ knitr::opts_chunk$set(message = FALSE)
 
 ```{r, message=F, warning=F, echo=F}
 source("../../R/globals.R")
-color_palette = c("#bdbdbd", "#1F78B4")
+```
+
+```{r, eval = F}
+file_url <- "http://cf.10xgenomics.com/samples/cell-exp/1.1.0/fresh_68k_pbmc_donor_a/fresh_68k_pbmc_donor_a_filtered_gene_bc_matrices.tar.gz"
+dir.create("10x_data")
+download.file(
+  file_url, file.path("10x_data", "pbmc68k.tar.gz")
+)
+untar(file.path("10x_data", "pbmc68k.tar.gz"))
+unlink(file.path("10x_data", "pbmc68k.tar.gz"))
 ```
 
 ```{r}
 library(Seurat)
+```
 
-sobj <- CreateSeuratObject(Read10X(file.path(data_dir, 
-                                             "pbmc66k", 
-                                             "filtered_matrices_mex", 
+```{r, eval = F}
+sobj <- CreateSeuratObject(Read10X(file.path("filtered_matrices_mex", 
                                              "hg19")),
                            min.genes = 200)
 
@@ -33,7 +42,7 @@ sobj <- FindVariableGenes(sobj, do.plot = T, y.cutoff = 0.75)
 
 Only run scaling, PCA, tSNA, and clustering using variable genes in dataset. Otherwise the scaling will consume too much memory (40Gb on my laptop before I killed it).
 
-```{r figure_out_pcs}
+```{r figure_out_pcs, eval = F}
 
 sobj <- ScaleData(sobj, genes.use = sobj@var.genes)
 
@@ -44,14 +53,14 @@ sobj <- RunPCA(sobj,
 PCElbowPlot(sobj)
 ```
 
-```{r}
+```{r, eval = F}
 sobj <- RunTSNE(sobj, dims.use = 1:20, perplexity = 50, seed.use = 20180525)
 TSNEPlot(sobj)
 FeaturePlot(sobj, c("PPBP", "PF4"))
 ```
 
 
-```{r}
+```{r, eval = F}
 sobj <- FindClusters(sobj,
                      dims.use = 1:20, 
                      k.param = 30,
@@ -62,7 +71,7 @@ sobj <- FindClusters(sobj,
                      random.seed = 20180525)
 ```
 
-```{r}
+```{r, eval = F}
 TSNEPlot(sobj, do.label = T, colors.use = c(brewer.pal(12, "Paired"),
                                             brewer.pal(9, "Set1")))
 
@@ -76,6 +85,13 @@ Find markers for MK cluster (marked by PF4, PPBP). Need to downsample the non me
 
 Actually downsampling does nothing, because the error occurs prior to the downsampling. Here is a hacked version of the seurat function that works. Consider submitting a PR. 
 
+```{r, eval = F}
+saveRDS(sobj, "sobj.rds")
+```
+
+```{r}
+sobj <- readRDS("sobj.rds")
+```
 
 ```{r}
 CustomFindMarkers <- function(
@@ -214,16 +230,16 @@ CustomFindMarkers <- function(
 ```
 
 ```{r}
-
-mk_markers <- CustomFindMarkers(sobj, ident.1 = "15", max.cells.per.ident = 10000)
+mk_markers <- CustomFindMarkers(sobj, ident.1= "15", max.cells.per.ident = 10000)
+mk_markers <- mk_markers %>% 
+  tibble::rownames_to_column("gene")
+write_tsv(mk_markers, "mk_markers_pbmc68k.txt")
 ```
 
 
 
-```{r}
-mk_markers <- mk_markers %>% 
-  tibble::rownames_to_column("gene")
-write_tsv(mk_markers, "mk_markers_pbmc68k.txt")
+```{r, eval = F}
+
 
 average_expr_per_cluster <- AverageExpression(sobj)
 average_expr_per_cluster <- average_expr_per_cluster %>% 
@@ -231,4 +247,30 @@ average_expr_per_cluster <- average_expr_per_cluster %>%
   tibble::rownames_to_column("gene")
 
 write_tsv(average_expr_per_cluster, "avg_expr_pbmc68k.txt")
+```
+
+```{r downsampling}
+mks <- rownames(sobj@meta.data[sobj@meta.data$res.1.2 == "15", ])
+not_mks <- rownames(sobj@meta.data[sobj@meta.data$res.1.2 != "15", ])
+
+n_mks_subsampled <- seq(1,length(mks), 5)
+mks_subsampled <- map(n_mks_subsampled, ~sample(mks, .x, replace = F))
+all_subsampled <- map(mks_subsampled, ~c(.x, not_mks))
+
+all_markers <- list()
+for (i in seq_along(all_subsampled)){
+  tmp_dat <- SubsetData(sobj, all_subsampled[[i]])
+  all_markers[[i]] <- CustomFindMarkers(tmp_dat, 
+                                      ident.1 = "15", 
+                                      max.cells.per.ident = 10000)
+  rm(tmp_dat)
+  gc()
+}
+
+saveRDS(all_markers, "all_markers.rds")
+```
+
+
+```{r read_markers}
+all_markers <- readRDS("all_markers.rds")
 ```

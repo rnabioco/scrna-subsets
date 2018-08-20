@@ -1931,6 +1931,108 @@ TSNEPlot(sub_obj, group.by = "res.1.2")
 ```
 
 
+
+
+## Gene detection sensitivity analysis
+
+```{r}
+sobj <- readRDS("original_sobj.rds")
+mks <- rownames(sobj@meta.data[sobj@meta.data$cell_labels == "Megakaryocytes", 
+                               ])
+rs_cells <- rownames(sobj@meta.data[sobj@meta.data$resampled, ])
+not_rs_mks <- mks[!mks %in% rs_cells]
+  
+set.seed(42)
+random_mks <- map(seq(0, length(not_rs_mks), 1),
+    ~sample(not_rs_mks, .x, replace = F))
+
+random_mks_w_rs <- map(random_mks, 
+    ~c(.x, rs_cells))
+
+not_rs_mks_genes <- sc_objs$kirkpatrick$genes_detected[not_rs_mks]
+
+rs_rs_mks_genes <- sc_objs$mkcell_pulldown$genes_detected[rs_cells]
+
+original_genes <- sc_objs$kirkpatrick$genes_detected
+resampled_genes <- c(not_rs_mks_genes, rs_rs_mks_genes)
+
+plt_dat <- map_dfr(random_mks_w_rs, 
+    function(x){
+      map_dfr(lst(original_genes, 
+                  resampled_genes),
+    ~length(unique(unlist(map(.x[x], 
+                              names)))))},
+    .id = "n_cells")
+
+plt_dat <- gather(plt_dat, library, n_genes, -n_cells) %>% 
+  mutate(n_cells = as.integer(n_cells))
+
+plt <- ggplot(plt_dat, 
+       aes(n_cells, n_genes)) +
+         geom_line(aes(color = library)) +
+  scale_color_manual(values = color_palette) +
+  labs(x = "# of Megakaryocytes in Cluster",
+       y = "# of Genes Detected\nin Cluster") +
+  theme(legend.position = "none")
+
+save_plot("resampling_gene_discovery_sensitivity.pdf",
+          plt)
+
+## repeat sampling to get mean +/- sd 
+
+random_mks <- map(seq(0, length(not_rs_mks), 1),
+    ~sample(not_rs_mks, .x, replace = F))
+
+ncells_to_sample <- seq(0, length(not_rs_mks), 1)
+
+run_one_round <- function(not_rs_cells,
+                          rs_cells,
+                          ncells, 
+                          niter,
+                          per_cell_gene_list
+){
+  nsamples <- map(1:niter, 
+                  ~sample(not_rs_cells, 
+                          ncells, 
+                          replace = F))
+  nsamples <- map(nsamples, ~c(.x, rs_cells))
+  res <- map_dbl(nsamples, 
+                 ~length(unique(unlist(map(per_cell_gene_list[.x], 
+                                           names)))))
+  data_frame(n_genes = res)
+}
+
+plt_dat <- map_dfr(ncells_to_sample, 
+    function(ncells){
+      res <- map_dfr(lst(original_genes, 
+                  resampled_genes),
+                  ~run_one_round(not_rs_cells = not_rs_mks,
+                                rs_cells = rs_cells,
+                                ncells = ncells,
+                                niter = 100,
+                                per_cell_gene_list = .x),
+              .id = "library")
+      res }, 
+    .id = "n_cells")
+
+plt_dat <-  mutate(plt_dat, n_cells = as.integer(n_cells)) %>% 
+  group_by(n_cells, library) %>% 
+  summarize(mean_genes = mean(n_genes),
+            sd_genes = sd(n_genes))
+
+plt <- ggplot(plt_dat, 
+       aes(n_cells, mean_genes)) +
+         geom_line(aes(color = library)) +
+#  geom_linerange(aes(ymin = mean_genes - sd_genes,
+#                     ymax = mean_genes + sd_genes)) + 
+  scale_color_manual(values = color_palette) +
+  labs(x = "# of Megakaryocytes in Cluster",
+       y = "# of Genes Detected\nin Cluster") +
+  theme(legend.position = "none")
+
+save_plot("resampling_gene_discovery_sensitivity_with_replication.pdf",
+          plt, base_height = 4, base_aspect_ratio = 1)
+```
 ## Correlation analysis
 
 ```{r clustify}
