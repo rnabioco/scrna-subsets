@@ -249,7 +249,7 @@ average_expr_per_cluster <- average_expr_per_cluster %>%
 write_tsv(average_expr_per_cluster, "avg_expr_pbmc68k.txt")
 ```
 
-```{r downsampling}
+```{r downsampling, message = F}
 mks <- rownames(sobj@meta.data[sobj@meta.data$res.1.2 == "15", ])
 not_mks <- rownames(sobj@meta.data[sobj@meta.data$res.1.2 != "15", ])
 
@@ -259,10 +259,12 @@ all_subsampled <- map(mks_subsampled, ~c(.x, not_mks))
 
 all_markers <- list()
 for (i in seq_along(all_subsampled)){
+  message(paste0("starting iteration #", i))
   tmp_dat <- SubsetData(sobj, all_subsampled[[i]])
   all_markers[[i]] <- CustomFindMarkers(tmp_dat, 
                                       ident.1 = "15", 
                                       max.cells.per.ident = 10000)
+  message(paste0("done with iteration #", i))
   rm(tmp_dat)
   gc()
 }

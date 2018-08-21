@@ -425,11 +425,11 @@ ggplot(dat_group, aes(lib, percent_lib, fill = resampled)) +
 ggsave("proportion_reads_all_barcode_barplot.pdf", width = 7, height = 7)
 
 dat_group %>% 
- rename(Method = library) %>% 
+ dplyr::rename(Method = library) %>% 
   spread(lib, percent_lib) %>% 
   mutate(`Targeted Library Read Fold-Enrichment` = `resampled\nlibrary` / `original\nlibrary`) %>%
   filter(resampled == T) %>% 
-  select(Method, `Targeted Library Read Fold-Enrichment`)
+  dplyr::select(Method, `Targeted Library Read Fold-Enrichment`)
 ```
 
 ## Genes detected
@@ -1072,7 +1072,6 @@ plt <- TSNEPlot(sobj,
   labs(title = "PBMCs") +
   theme(legend.position = "none")
 
-plt
 save_plot("original_mkcells_tsne.pdf", plt, 
           base_height = 4.25, base_width = 4.25)
 
@@ -1477,31 +1476,28 @@ ma_dat <- bind_rows(ma_dat, .id = "cell") %>%
   mutate(cell = factor(cell,
                        levels = names(cell_names)))
 
-plot_ma <- function(df, markers){
-  
-  df <- mutate(df, 
-               marker = ifelse(gene %in% markers,
+df <- mutate(ma_dat, 
+               marker = ifelse(gene %in%  mk_markers$gene,
                                   "Megakaryocyte marker gene",
                                   "Other gene"))
-  n_up <- filter(df, log2_diff > 0) %>% 
+n_up <- filter(df, log2_diff > 0) %>% 
     group_by(cell) %>% 
     summarize(n = n(), n = paste0("up = ", n))
   
-  n_down <- filter(df, log2_diff < 0) %>% 
+n_down <- filter(df, log2_diff < 0) %>% 
     group_by(cell) %>% 
     summarize(n = n(), n = paste0("down = ", n))
   
-  if (nrow(n_down) == 0) {
-    n_down = data_frame(cell = df$cell %>% unique(),
-                        n = "down = 0")
-  }
-  plt <- ggplot(df,
+
+marker_plt <- ggplot(df,
          aes(mean_expression_log2,
              log2_diff)) +
-    geom_hline(aes(yintercept = 0), linetype = "dashed", colour = "grey") + 
+    geom_hline(aes(yintercept = 0), 
+               linetype = "dashed", 
+               colour = "grey") + 
     geom_point(aes(color = marker), size = 0.25) +
     geom_text(data = n_up, aes(x = max(ma_dat$mean_expression_log2) * 0.7, 
-                               y = max(ma_dat$log2_diff) * 1.2, 
+                               y = max(ma_dat$log2_diff) * 0.9, 
                                label = n)) +
     geom_text(data = n_down, aes(x = max(ma_dat$mean_expression_log2) * 0.7, 
                                  y = min(ma_dat$log2_diff) * 1.2, 
@@ -1512,12 +1508,9 @@ plot_ma <- function(df, markers){
                               " (log"[2], ")"))) +
     scale_color_manual(values = color_palette, name = "") +
     guides(colour = guide_legend(override.aes = list(size = 4))) + 
-    theme(legend.position = "top")
-  plt
-}
-
-marker_plt <- plot_ma(ma_dat, mk_markers$gene) +
+    theme(legend.position = "top") +
   theme(plot.margin = unit(rep(0, 4), "lines"))
+
 marker_plt
 save_plot("per_cell_MA_mk_markers.pdf", marker_plt, 
           base_height = 4, base_aspect_ratio = 2.5)
@@ -1526,7 +1519,6 @@ save_plot("per_cell_MA_mk_markers.pdf", marker_plt,
 umi_seqs_split <- umi_seqs[[resampled_lib]] %>% 
   filter(!is.na(count.x)) %>% 
   separate(umi_molecule, into = c("umi", "gene"), sep = "::")
-  
 
 mks <- rownames(sobj@meta.data)[sobj@meta.data$cell_labels == "Megakaryocytes"]
 
@@ -1545,19 +1537,24 @@ umi_summary <- group_by(umi_seqs_split,
 
 umi_summary <- mutate(umi_summary, 
                       cell = str_c(barcode_10x, "-1"))
-plt_dat <- left_join(ma_dat, umi_summary, by = c("cell", "gene")) %>% 
-  filter(!is.na(barcode_10x)) %>% 
+
+plt_dat <- left_join(ma_dat, umi_summary, 
+                     by = c("cell", "gene")) %>% 
+ # filter(!is.na(barcode_10x)) %>% 
   mutate(cell = factor(cell_names[cell],
                        levels = cell_names))
 
 seq_sat_plt <- ggplot(plt_dat,
          aes(mean_expression_log2,
              log2_diff)) +
-    geom_hline(aes(yintercept = 0), linetype = "dashed", colour = "grey") + 
+    geom_hline(aes(yintercept = 0), 
+               linetype = "dashed", 
+               colour = "grey") + 
     geom_point(aes(color = read_saturation), 
                size = 0.25) +
     scale_colour_gradientn(colours = rev(brewer.pal(9, "Reds")),
-                           name = "Sequencing\nSaturation") +
+                           name = "Sequencing\nSaturation",
+                           na.value = "lightgrey") +
     facet_wrap(~cell, nrow = 1) +
     labs(x = expression(paste("Abundance (log"[2], ")")),
          y = expression(paste(frac("Resampled","Original"), 

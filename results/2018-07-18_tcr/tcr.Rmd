@@ -109,6 +109,7 @@ clipr::write_clip(plt_tbl)
 plt_tbl
 ```
 
+
 ```{r read_umi_enrichment}
 plt_dat <- annotations %>% 
   group_by(library, barcode) %>% 

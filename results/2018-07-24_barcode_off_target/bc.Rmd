@@ -89,7 +89,7 @@ plot_distances <- function(query_seqs,
                            by = c("barcode" = "barcode_10x")) %>% 
     dplyr::rename(cell = barcode)
   
-  probe_seqs <- str_c(probe_prefix, cells)
+  probe_seqs <- str_c(probe_prefix, query_seqs)
   ref_seqs <- str_c(barcode_prefix, unique(bc_counts$barcode))
   
   sw_res <- map_dfr(probe_seqs, 
@@ -279,3 +279,95 @@ save_plot(str_c(resampled_lib, "_bc_dist.pdf"),
 plt
 ```
 
+## weird enriched barcodes in the m/h pulldown
+
+Try to figure out why there is minor enrichment in the M/H mix experiment for two barcodes. First run smith-waterman alignment against all barcode + umi sequences from these libraries. Perhaps there is a particular barcode + umi combo that is being enriched...
+
+```{r}
+source("../../R/globals.R")
+weird_bcs <- c("CGTAGGCTCATGCATG-1", "GTAGGCCGTCTCTTTA-1")
+weird_cells <- c("CGTAGGCTCATGCATG", "GTAGGCCGTCTCTTTA")
+libs <- c(
+  "original_10x",
+  "mouse_human_cell_pulldown")
+
+lib_data_dir <- file.path(data_dir, 
+                          "lna_cell",
+                          "mh_mix")
+umipaths <- file.path(lib_data_dir, 
+                      libs, 
+                      "umis",
+                      "umigroups.txt.gz")
+tmp <- map_dfr(umipaths, 
+           ~read_tsv(.x, 
+                col_names = c("barcode", "umi", "reads")),
+           .id = "library")
+
+tmp_weird <- filter(tmp, barcode %in% weird_bcs) %>% 
+  separate(umi, into = c("umi_seq", "genome", "gene"), sep = "::") %>% 
+  mutate(query_seqs = str_c(str_replace(barcode, "-1$", ""),
+                            umi_seq))
+
+probe_prefix <- str_sub(p5_primer_seqs, -4, -1)
+barcode_prefix <- str_sub(p5_primer_seqs, -16, -1)
+
+cells <- c("GACGTTAGTGCCTGTG","CTGATCCCATGACGGA")
+
+probe_seqs <- str_c(probe_prefix, cells)
+ref_seqs <- str_c(barcode_prefix, unique(tmp_weird$query_seqs))
+  
+sw_res <- map_dfr(probe_seqs, 
+                    function(x){
+                      res <- get_sw(x, 
+                                    ref_seqs)
+                      res$query <- x
+                      res$reference <- ref_seqs
+                      res <- mutate(res, 
+                                    cell = str_replace(query, 
+                                                       probe_prefix, 
+                                                       ""),
+                                    barcode = str_replace(reference,
+                                                          barcode_prefix, 
+                                                          ""))
+                      res
+                      
+                    }) %>% 
+    tbl_df()
+
+ggplot(sw_res, 
+       aes("1", sw_score)) +
+  geom_boxplot() +
+  labs(x = "alignment score (40 is max)")
+```
+
+Nope, that doesn't explain it. 
+
+Perhaps there is a cDNA sequence that contains high similarity to the probes? Next plot scatterplot of original versus resampled for these weird barcodes.
+
+```{r}
+sc_objs <- readRDS(file.path(results_dir,
+        "2018-05-16_mouse_human",
+        "processed_data.rds"))
+
+cells_expr <- map(sc_objs, ~.x$norm_reads[, weird_cells])
+
+expr_df <- map_dfr(cells_expr, ~as.matrix(.) %>% 
+      as.data.frame() %>% 
+      tibble::rownames_to_column("gene") %>% 
+      tbl_df(), 
+    .id = "library") %>% 
+   gather(cell, expr, -library, -gene) %>% 
+  spread(library, expr, fill = 0) %>% 
+  mutate(a = log2(original_10x +  1),
+         m = log2(mouse_human_cell_pulldown + 1) - log2(original_10x + 1)
+         )
+  
+
+ggplot(expr_df, 
+       aes(m, a)) +
+  geom_point() +
+  facet_wrap(~cell) +
+  geom_text_repel(data = expr_df %>% 
+                    filter(a > 1),
+                  aes(label = gene))
+```
