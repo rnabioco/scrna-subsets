@@ -1760,4 +1760,35 @@ plt <- ggplot(plt_dat, aes(new_id, purity)) +
 
 save_plot("species_specificity.pdf", plt,
           base_width = 12, base_height= 6.5)
+
+
+umi_plt_dat <- filter(plt_dat, count_type == "UMIs")
+
+umi_plt <- ggplot(umi_plt_dat, aes(new_id, purity)) +
+  geom_hline(aes(yintercept = 0.80), linetype = "dashed", 
+             color = "grey", alpha = 0.75) +
+  geom_hline(aes(yintercept = 0.20),  linetype = "dashed", 
+             color = "grey", alpha = 0.75) +
+  geom_point(aes(color = resampled), 
+             position = position_dodge(width = 0.5)) +
+  geom_line(colour = "grey",
+            arrow = arrow(ends = "first",
+                          angle = 30,
+                          length = unit(0.05, "npc"))) +
+  facet_wrap(~library, 
+             labeller = labeller(library = lib_names),
+             scales = "free_x", nrow = 1) +
+  scale_color_brewer(palette = "Set1", name = "") +
+  guides(color = guide_legend(override.aes = list(size = 5))) + 
+  labs(x = "",
+       y = expression(paste( "Species Purity ", 
+                             frac("Human", "Human + Mouse")))) +
+  theme(axis.text.x = element_text(angle = 90,
+                                   hjust = 1,
+                                   vjust = 0.5),
+        legend.pos = "top")
+
+
+save_plot("species_specificity_umis.pdf", umi_plt,
+          base_height = 6, base_width = 6.5)
 ```
