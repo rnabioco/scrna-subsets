@@ -109,26 +109,75 @@ clipr::write_clip(plt_tbl)
 plt_tbl
 ```
 
+The assembly doesn't use all of the UMIs, so the reported UMIs in the stats table will only show the umis that are used in assembly. To plot the overall umi enrichment per barcode a 10x intermediate summary file will used. 
+
+The file is found here:
+`Sample_Name/SC_VDJ_ASSEMBLER_CS/SC_VDJ_ASSEMBLER/ASSEMBLE_VDJ/fork0/files/umi_summary_tsv.tsv`
 
 ```{r read_umi_enrichment}
-plt_dat <- annotations %>% 
-  group_by(library, barcode) %>% 
-  summarize(n_reads = sum(reads)) %>% 
-  spread(library, n_reads, fill = 0) %>% 
+called_cells_info <- read_csv(file.path(data_dir,
+                                        "tcr_resampling",
+                                        "original",
+                                        "VDJ_newcellranger_Tcell",
+                                        "outs",
+                                        "filtered_contig_annotations.csv"))
+
+fn_og <- dir(file.path(data_dir,
+                     "tcr_resampling",
+                     "original",
+                     "VDJ_newcellranger_Tcell",
+                     "SC_VDJ_ASSEMBLER_CS",
+                     "SC_VDJ_ASSEMBLER",
+                     "ASSEMBLE_VDJ",
+                     "fork0",
+                     "files"),
+           recursive = T,
+           full.names = T,
+           pattern = "umi_summary_tsv.tsv$")
+
+fn_rs <- dir(file.path(data_dir,
+                     "tcr_resampling",
+                     "resampled",
+                     "VDJ_newcellranger_JH109",
+                     "SC_VDJ_ASSEMBLER_CS",
+                     "SC_VDJ_ASSEMBLER",
+                     "ASSEMBLE_VDJ",
+                     "fork0",
+                     "files"),
+           recursive = T,
+           full.names = T,
+           pattern = "umi_summary_tsv.tsv$")
+
+fns <- list(fn_og, fn_rs)
+names(fns) <- c("Original",
+                "Resampled")
+umis <- map_dfr(fns, 
+                read_tsv,
+                .id = "library")
+
+# first line for each barcode is not a umi
+# keep info for called cells
+umis <- filter(umis, 
+               !is.na(umi), 
+               barcode %in% unique(called_cells_info$barcode)) 
+
+umi_counts <- group_by(umis, library, barcode) %>% 
+  summarize(n_umis = n()) %>%  
+  spread(library, n_umis, fill = 0) %>% 
   mutate(
-    norm_res =  1e6 * (resampled / sum(resampled)),
-    norm_og =  1e6 * (original / sum(original)),
+    norm_res =  1e6 * (Resampled / sum(Resampled)),
+    norm_og =  1e6 * (Original / sum(Original)),
     enrichment = log2(norm_res + 1) - log2(norm_og + 1),
     abundance = norm_og,
     resampled = barcode %in% barcodes_10x)
 
-plt <- ggplot(plt_dat, aes(abundance, enrichment)) +
+plt <- ggplot(umi_counts, aes(abundance, enrichment)) +
   geom_point(aes(color = resampled),
              size = 0.5) +
   geom_abline(aes(intercept = 0, slope = 0), 
               linetype = "dashed",
               colour = "darkgrey") +
-  geom_text_repel(data = filter(plt_dat, resampled),
+  geom_text_repel(data = filter(umi_counts, resampled),
                   aes(label = ".",
                       color = resampled),
                   size = 0,
@@ -365,3 +414,147 @@ plot_cov(fasta = fa, tcr = tcrb,
          cdrTrack = cdrTrack)
 ```
 
+## make contig figure
+
+```{r}
+annot_fn <- file.path(data_dir, 
+                    "tcr_resampling",
+                    "cellranger",
+                    "original",
+"outs", "consensus_annotations.json")
+
+annots <- jsonlite::read_json(annot_fn)
+
+ids <- map(annots, ~.x["contig_name"] %>% 
+  as_data_frame()) %>% 
+  bind_rows() %>% 
+  mutate(row = as.character(row_number()))
+
+per_feature_annots <- left_join(ids, seqs, by = "row")
+
+consensus_alpha <- unique(filter(per_feature_annots, 
+                          contig_name == "clonotype2_consensus_1")$seq)
+  
+consensus_beta <- unique(filter(per_feature_annots, 
+                          contig_name == "clonotype1_consensus_1")$seq)
+
+## per_cell_contigs
+annot_fn <- file.path(data_dir, 
+                    "tcr_resampling",
+                    "cellranger",
+                    "original",
+"outs", "all_contig_annotations.json")
+
+annots <- jsonlite::read_json(annot_fn)
+
+get_cell_annots <- map_lgl(annots, ~.x$barcode %in% barcodes_10x)
+cell_annots <- annots[get_cell_annots]
+
+barcodes <- map_chr(cell_annots, ~.x$barcode)
+cell_chain_annots <- map(cell_annots, 
+                         ~.x$annotations) %>% 
+  modify_depth(., 2, 
+               ~.x$feature) %>% 
+  modify_depth(., 2, 
+               ~.x$chain) %>% 
+  map_chr(., ~paste0(unique(unlist(.x)), collapse = ","))
+
+cell_seqs <- map_chr(cell_annots, ~.x$seq)
+
+og_annots <- data_frame(barcode = barcodes,
+                        chain = cell_chain_annots,
+                        seq = cell_seqs) %>% 
+  mutate(contig_len = nchar(seq)) %>% 
+  group_by(barcode, chain) %>% 
+  arrange(desc(contig_len), .by_group = T) %>% 
+  dplyr::slice(1)
+
+## resampled
+annot_fn <- file.path(data_dir, 
+                    "tcr_resampling",
+                    "cellranger",
+                    "resampled",
+"outs", "all_contig_annotations.json")
+
+annots <- jsonlite::read_json(annot_fn)
+
+get_cell_annots <- map_lgl(annots, ~.x$barcode %in% barcodes_10x)
+cell_annots <- annots[get_cell_annots]
+
+barcodes <- map_chr(cell_annots, ~.x$barcode)
+cell_chain_annots <- map(cell_annots, 
+                         ~.x$annotations) %>% 
+  modify_depth(., 2, 
+               ~.x$feature) %>% 
+  modify_depth(., 2, 
+               ~.x$chain) %>% 
+  map_chr(., ~paste0(unique(unlist(.x)), collapse = ","))
+
+cell_seqs <- map_chr(cell_annots, ~.x$seq)
+
+rs_annots <- data_frame(barcode = barcodes,
+                        chain = cell_chain_annots,
+                        seq = cell_seqs) %>% 
+  mutate(contig_len = nchar(seq)) %>% 
+  group_by(barcode, chain) %>% 
+  arrange(desc(contig_len), .by_group = T) %>% 
+  dplyr::slice(1)
+
+per_cell_annots <- bind_rows(list(
+  original = og_annots,
+  resampled = rs_annots), 
+  .id = "library")
+
+per_cell_annots <- filter(per_cell_annots, 
+                          chain %in% c("TRA", "TRB")) %>% 
+  mutate(header = str_c(library, "_", barcode, "_", chain)) %>% 
+  ungroup()
+
+kentr::write_fasta(per_cell_annots, out_path = "cell_seqs.fasta")
+out_consensus <- data_frame(seq = c(consensus_alpha, 
+                                    consensus_beta),
+                            header = c("TCRA", "TCRB"))
+kentr::write_fasta(out_consensus[1, ], out_path = "tcra.fasta")
+kentr::write_fasta(out_consensus[2, ], out_path = "tcrb.fasta")
+```
+
+```{bash run_blast}
+blastn -outfmt 6 -strand plus \
+  -query cell_seqs.fasta \
+  -subject tcra.fasta \
+  > tcra_alignments.txt
+
+blastn -outfmt 6 -strand plus \
+  -query cell_seqs.fasta \
+  -subject tcrb.fasta \
+  > tcrb_alignments.txt
+```
+
+```{r make_bed_files}
+alignments <- map_dfr(c("tcra", "tcrb"), 
+        ~read_tsv(paste0(.x, 
+                         "_alignments.txt"),
+                  col_names = F))
+alignments_to_bed <- dplyr::select(alignments, 
+                                  query = X1,
+                                  ref = X2,
+                                  start = X9, 
+                                  end = X10, 
+                                  bitscore = X12)
+
+bed <- group_by(alignments_to_bed, query, ref) %>% 
+  arrange(desc(bitscore), .by_group = T) %>% 
+  dplyr::slice(1) %>% 
+  ungroup() %>% 
+  mutate(chrom = ifelse(ref == "TCRA",
+                        "clonotype2_consensus_1",
+                        "clonotype1_consensus_1"),
+         start = start - 1) %>% 
+  dplyr::select(chrom, start, end, query)
+
+og_bed <- filter(bed, str_detect(query, "original"))
+rs_bed <- filter(bed, str_detect(query, "resampled"))
+
+write_tsv(og_bed, "original_annotations.bed", col_names = F)
+write_tsv(rs_bed, "resampled_annotations.bed", col_names = F)
+```
