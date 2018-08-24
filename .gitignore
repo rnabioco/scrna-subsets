@@ -2,6 +2,7 @@
 dbases/*
 data/*
 logs/*
+docs/*
 *.xlsx
 *.png
 pipeline/.snakemake*
