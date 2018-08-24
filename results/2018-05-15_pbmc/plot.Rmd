@@ -102,9 +102,46 @@ resampled_metadat <- filter(sc_metadat,
 
 Load and organize a table for each library of read counts per cell per gene, and a table of umi counts per cell per gene. 
 
+## Various stats
+
+```{r stats}
+sc_metadat %>% 
+  filter(resampled) %>% 
+  dplyr::select(library,
+                cell_id, 
+                total_reads,
+                total_umis,
+                n_genes) %>% 
+  group_by(cell_id) %>% 
+  arrange(library, .by_group = T) %>% 
+  mutate(read_enrichment = nth(total_reads, 2) / nth(total_reads, 1)) %>% 
+  group_by(library) %>% 
+  summarize(median_genes = median(n_genes),
+            max_read_enrichment = max(read_enrichment))
+
+sc_metadat %>% 
+  filter(resampled) %>% 
+  group_by(library) %>% 
+  summarize(mean_sat = mean(cDNA_duplication),
+            sd_sat = sd(cDNA_duplication))
+
+
+sc_metadat %>% 
+  filter(resampled) %>% 
+  dplyr::select(library,
+                cell_id, 
+                total_reads,
+                total_umis,
+                n_genes) %>% 
+  group_by(cell_id) %>% 
+  arrange(library, .by_group = T) %>% 
+  summarize(more_genes = nth(n_genes, 2) - nth(n_genes, 1)) %>% 
+  summarize(mean(more_genes), sd(more_genes))
+```
+
 ## cDNA duplication rate
 
-```{r cDNA_duplication_rate, fig.cap="Note the high level of sequencing saturation (0 = no-duplication, 1 = all duplicates) in the original library. Also note that the libraries tend to have higher saturatioin rates, after subsampling."}
+```{r cDNA_duplication_rate, fig.cap="Note the high level of sequencing saturation (0 = no-duplication, 1 = all duplicates) in the original library. Also note that the libraries tend to have higher saturation rates, after subsampling."}
 sc_metadat <- map(sc_objs, ~.x$meta_dat) %>% 
   bind_rows(.id = "library") %>% 
   mutate(library = factor(library, levels = libs)) %>% 
@@ -878,7 +915,6 @@ save_plot("expression_newgenes_violinplots.pdf", new_gene_plt,
           base_aspect_ratio = 0.5)
 ```
 
-
 ## UMIs detected
 
 ### Parse out new verses old UMIs
@@ -1083,7 +1119,6 @@ plt <- TSNEPlot(sobj,
                 do.label = F, 
                 pt.size = 0.5) + 
   theme(legend.position = "none")
-plt
 save_plot("original_selected_mkcells_tsne.pdf", plt, 
           base_height = 4.25, base_width = 4.25)
 ```
@@ -1327,8 +1362,61 @@ save_plot("resampled_vs_original_closeup.pdf",
           plt, nrow = 1, ncol = 3, base_aspect_ratio = 1)
 ```
 
+```{r lib_size_normalized_cell_plots}
+og_cells <- rownames(sobj@meta.data)[sobj@meta.data$resampled == "original cell"]
+rs_cells <- str_c(og_cells, "::resampled")
+names(og_cells) <- og_cells
+expr <- map2_dfr(og_cells, rs_cells, function(x, y){
+  xdat <- sobj@data[, x, drop = T]
+  ydat <- sobj@data[, y, drop = T]
+  expr <- data_frame(gene = rownames(sobj@data),
+                   Original = xdat,
+                   Resampled = ydat)
+  expr
+}, 
+.id = "cell") %>% 
+  mutate(cell = str_c(cell, "-1"),
+         cell = factor(cell, levels = names(cell_names)))
 
-## Heatmap analysis
+norm <- ggplot(expr, aes(Original, Resampled)) +
+  geom_point(size = 0.25) + 
+  geom_abline(aes(intercept = 0, slope = 1)) +
+  coord_fixed() +
+  facet_grid(~cell, 
+             labeller = labeller(cell = cell_names)) +
+  labs(x = "Original Library\nlog(Norm. UMI + 1)",
+       y = "Resampled Library\nlog(Norm. UMI + 1)")
+
+unnorm_expr <- map2_dfr(og_cells, rs_cells, function(x, y){
+  xdat <- log1p(sobj@raw.data[, x, drop = T])
+  ydat <- log1p(sobj@raw.data[, y, drop = T])
+  expr <- data_frame(gene = rownames(sobj@data),
+                   Original = xdat,
+                   Resampled = ydat)
+  expr
+}, 
+.id = "cell") %>% 
+  mutate(cell = str_c(cell, "-1"),
+         cell = factor(cell, levels = names(cell_names)))
+
+unnorm <- ggplot(unnorm_expr, aes(Original, Resampled)) +
+  geom_point(size = 0.25) + 
+  geom_abline(aes(intercept = 0, slope = 1)) +
+  coord_fixed() +
+  facet_grid(~cell, 
+             labeller = labeller(cell = cell_names)) +
+  labs(x = "Original Library\nlog(UMI + 1)",
+       y = "Resampled Library\nlog(UMI + 1)")
+unnorm
+
+
+save_plot("norm_expression.pdf", norm, 
+          base_aspect_ratio = 1.8)
+
+save_plot("unnorm_expression.pdf", unnorm, 
+          base_aspect_ratio = 1.8)
+```
+
 
 Plot average megakaryocyte expression, the original megakaroytes, and the resampled megakaryocytes. Plot markers of megakaryocytes, defined above using the original data.
 
@@ -1518,28 +1606,33 @@ save_plot("per_cell_MA_mk_markers.pdf", marker_plt,
 # umi_seqs defined above
 umi_seqs_split <- umi_seqs[[resampled_lib]] %>% 
   filter(!is.na(count.x)) %>% 
-  separate(umi_molecule, into = c("umi", "gene"), sep = "::")
+  separate(umi_molecule, 
+           into = c("umi", 
+                    "gene"), 
+           sep = "::")
 
 mks <- rownames(sobj@meta.data)[sobj@meta.data$cell_labels == "Megakaryocytes"]
 
 umi_seqs_split <- mutate(umi_seqs_split, 
                          mk = ifelse(barcode_10x %in% mks, 
                                      T,
-                                     F))
+                                     F)) %>% 
+  filter(mk)
 
 umi_summary <- group_by(umi_seqs_split,
-                        mk, 
+                        barcode_10x, 
                         gene) %>% 
-  mutate(n_umis = n(),
-            n_reads = sum(count.x),
-            read_saturation = 1 - (n_umis / n_reads),
-            umi_saturation = n_umis / 4^10)
+  summarize(n_umis = n(),
+         n_reads = sum(count.x),
+         read_saturation = 1 - (n_umis / n_reads),
+         umi_saturation = n_umis / 4^10)
 
 umi_summary <- mutate(umi_summary, 
                       cell = str_c(barcode_10x, "-1"))
 
 plt_dat <- left_join(ma_dat, umi_summary, 
                      by = c("cell", "gene")) %>% 
+  
  # filter(!is.na(barcode_10x)) %>% 
   mutate(cell = factor(cell_names[cell],
                        levels = cell_names))
@@ -1566,7 +1659,6 @@ seq_sat_plt <- ggplot(plt_dat,
         #  legend.text = element_text(size = 10),
          # legend.title = element_text(size = 10))
 
-seq_sat_plt
 save_plot("per_cell_MA_seq_saturation.pdf", seq_sat_plt, 
           base_height = 4, base_aspect_ratio = 2.5)
 
@@ -2029,7 +2121,23 @@ plt <- ggplot(plt_dat,
 
 save_plot("resampling_gene_discovery_sensitivity_with_replication.pdf",
           plt, base_height = 4, base_aspect_ratio = 1)
+
+
+original_mk_genes <- sc_objs$kirkpatrick$genes_detected[mks]
+resampled_mk_genes <- sc_objs$mkcell_pulldown$genes_detected[rs_cells]
+og_genes <- sc_objs$kirkpatrick$genes_detected[mks]
+rs_genes <- c(not_rs_mks_genes, resampled_mk_genes)
+
+n_og_genes <- length(unique(unlist(map(og_genes, names))))
+n_rs_genes <- length(unique(unlist(map(rs_genes, names))))
+
+## original total genes
+n_og_genes
+## original total genes
+n_rs_genes
 ```
+
+
 ## Correlation analysis
 
 ```{r clustify}
@@ -2069,3 +2177,42 @@ Heatmap(cor_mat[, 1:10],
         show_row_names = F, 
         show_row_dend = F)
 ```
+
+## KNN analysis
+
+```{r, knns}
+sobj <- readRDS("rs_sobj.rds")
+## use combined data from above
+data.use <- GetCellEmbeddings(object = sobj,
+                              reduction.type = "pca",
+                              dims.use = 1:20)
+
+## find nearest neighboors using exact search
+knn <- RANN::nn2(data.use, k = 5,
+                 searchtype = 'standard',
+                 eps = 0)
+
+resampled_idxs <- knn$nn.idx[str_detect(rownames(data.use),
+                                         "::resampled"), ]
+
+nn_ids <- as_data_frame(t(apply(resampled_idxs, 1,
+                      function(x)rownames(data.use)[x])))
+
+colnames(nn_ids) <- c("query_cell", 
+                      paste0("nearest neighbor ", 
+                             1:(ncol(nn_ids) - 1)))
+
+
+nn_ids <- mutate(nn_ids, 
+                 cell_name = str_c(str_replace(query_cell, 
+                                               "::resampled",
+                                               ""), 
+                                   "-1"),
+                 cell_name = cell_names[cell_name]) %>% 
+  dplyr::select(cell_name, everything())
+
+nn_ids
+
+clipr::write_clip(nn_ids)
+```
+

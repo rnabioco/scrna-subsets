@@ -434,7 +434,11 @@ p <- plot_umi_percents(filter(plt_dat$mouse_human,
 save_plot("mouse_human_cell_pulldown.pdf", p,
           base_height = 6, base_width = 5.8)
 
+group_by(p$data, class) %>% 
+  summarize(mean(percent_class), sd(percent_class))
+```
 
+```{r pbmcs}
 p <- plot_umi_percents(plt_dat$pbmc, 
                   mk_cell_names,
                   mk_lib_names)

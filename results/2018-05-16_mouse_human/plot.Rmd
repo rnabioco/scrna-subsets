@@ -103,6 +103,29 @@ resampled_metadat <- filter(sc_metadat,
 
 ```
 
+## Various stats
+
+```{r stats}
+sc_metadat %>% 
+  filter(resampled)%>% 
+  dplyr::select(library,
+                cell_id, 
+                total_reads,
+                total_umis)
+
+sc_metadat %>% 
+  filter(resampled) %>% 
+  dplyr::select(library,
+                cell_id, 
+                total_reads,
+                total_umis) %>% 
+  group_by(cell_id) %>%
+  arrange(library, .by_group = T) %>% 
+  summarize(read_enrichment = nth(total_reads, 2) / nth(total_reads, 1),
+         umi_enrichment = nth(total_umis, 2) / nth(total_umis, 1)) 
+
+```
+
 ## plot cDNA duplication rate
 
 ```{r cDNA_duplication_rate, fig.cap="Note the high level of sequencing saturation (0 = no-duplication, 1 = all duplicates) in the original library. Also note that the libraries tend to have higher saturation rates, after subsampling."}
@@ -138,6 +161,18 @@ plt
 save_plot("cDNA_duplication.pdf", 
           plt, 
           base_aspect_ratio = 1.7)
+
+
+sc_metadat %>% 
+  filter(library == reflib) %>% 
+  group_by(library) %>% 
+  summarize(mean_duplication = mean(cDNA_duplication),
+            sd_duplication = sd(cDNA_duplication))
+
+sc_metadat %>% 
+  filter(library == resampled_lib,
+         resampled) %>% 
+  dplyr::select(library, cell_id, cDNA_duplication)
 ```
 
 
@@ -459,7 +494,6 @@ plt <- plot_grid(plotlist = umi_plots,
 save_plot("umi_scatterplot_human_mouse.pdf", 
           plt, ncol = 2, nrow = 1,
           base_width = 4, base_height = 4)
-
 ```
 
 ```{r gene_plot}
