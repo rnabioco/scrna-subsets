@@ -43,16 +43,16 @@ LIB_MAP:
   public_10x_mh: "public_data_10x"
   
 PCR:
-  bcs: "/beevol/home/riemondy/Projects/subsampled_scRNA/data/pcr/original/fastq/original/well_data_barcode_keys.txt"
+  bcs: "/beevol/home/riemondy/Projects/scrna-subsets/data/pcr/original/fastq/original/well_data_barcode_keys.txt"
   seq_extract: " 1 11 12 21 "  
   fc_params: " -s 1 "
 
 LNA:
-  bcs: "/beevol/home/riemondy/Projects/subsampled_scRNA/data/lna_cell/mh_mix/original_10x/fastq/original/barcodes_from_10x_run.txt"
+  bcs: "/beevol/home/riemondy/Projects/scrna-subsets/data/lna_cell/mh_mix/original_10x/fastq/original/barcodes_from_10x_run.txt"
   seq_extract: " 1 16 17 26 "  
   fc_params: " -s 1 "
 
 public_data_10x:
-  bcs: "/beevol/home/riemondy/Projects/subsampled_scRNA/data/lna_cell/public_10x_mh/fastq/original/barcodes.txt"  
+  bcs: "/beevol/home/riemondy/Projects/scrna-subsets/data/lna_cell/public_10x_mh/fastq/original/barcodes.txt"  
   seq_extract: " 1 16 17 26 "  
   fc_params: " -s 1 "

@@ -28,7 +28,7 @@ LIB_MAP:
   mkcell_pulldown: "LNA"
 
 LNA:
-  bcs: "/beevol/home/riemondy/Projects/subsampled_scRNA/data/lna_cell/pbmc_expt/kirkpatrick/fastq/original/barcodes_from_10x_run.txt"
+  bcs: "/beevol/home/riemondy/Projects/scrna-subsets/data/lna_cell/pbmc_expt/kirkpatrick/fastq/original/barcodes_from_10x_run.txt"
   seq_extract: " 1 16 17 26 "  
   fc_params: " -s 1 "
 
