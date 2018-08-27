@@ -3,12 +3,7 @@ library(gganimate)
 library(ggrepel)
 library(magick)
 library(cowplot)
-
-project_dir <- path.expand("~/Projects/subsampled_scRNA")
-data_dir <- file.path(project_dir, "data")
-
-color_palette <- c("#0072B2", 
-                      "#D55E00")
+source("globals.R")
 
 cells <- list(
   mouse_human_cell_pulldown = c("GACGTTAGTGCCTGTG",
@@ -35,7 +30,7 @@ lib_names = c(
   mouse_human_cell_pulldown = "Resampled Library"
 )
 
-sc_objs <- readRDS("/Users/kriemo/Projects/subsampled_scRNA/results/2018-05-16_mouse_human/processed_data.rds")
+sc_objs <- readRDS(file.path(results_dir, "2018-05-16_mouse_human", "processed_data.rds"))
 
 sc_metadat <- map(sc_objs, ~.x$meta_dat) %>% 
   bind_rows(.id = "library") %>% 
@@ -141,7 +136,7 @@ lib_names = c(
   mkcell_pulldown = "Resampled Library"
 )
 
-sc_objs <- readRDS("/Users/kriemo/Projects/subsampled_scRNA/results/2018-05-15_pbmc/processed_data.rds")
+sc_objs <- readRDS(file.path(results_dir, "2018-05-15_pbmc", "processed_data.rds"))
 
 sc_metadat <- map(sc_objs, ~.x$meta_dat) %>% 
   bind_rows(.id = "library") %>% 

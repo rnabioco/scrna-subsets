@@ -371,8 +371,8 @@ probe_locs <- tribble(
   "chr11", 118342622, 118342661, "-", "DNA probe"
 )
 
-gtf_fn <- "~/Projects/shared_dbases/annotation/gencode.v25.annotation.gtf"
-bam_fn <- dir("~/bodhi/Projects/subsampled_scRNA/data/lna_gene",
+gtf_fn <- file.path(db_dir, "gencode.v25.annotation.gtf")
+bam_fn <- dir(file.path(project_dir, "data", "lna_gene"),
               pattern = ".bam$",
               recursive = T,
               full.names = T)

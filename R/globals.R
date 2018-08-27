@@ -9,7 +9,7 @@ library(ggrepel)
 
 #### Paths ####
 
-project_dir <- path.expand("~/Projects/subsampled_scRNA")
+project_dir <- path.expand("~/Projects/scrna-subsets")
 data_dir <- file.path(project_dir, "data")
 results_dir <- file.path(project_dir, "results")
 docs_dir <- file.path(project_dir, "docs")
