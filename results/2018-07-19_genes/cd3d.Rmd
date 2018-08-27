@@ -115,6 +115,16 @@ sc_objs <- map(sc_objs, norm_libsize)
 sc_objs <- map(sc_objs, compute_summaries)
 ```
 
+```{r}
+dir.create("count_matrices", showWarnings = F)
+iwalk(sc_objs, 
+     function(x, y) {
+       out_fn <- file.path("count_matrices", paste0(y, "_umis.tsv"))
+       write_tsv(x$umis, out_fn)
+       R.utils::gzip(out_fn, overwrite = TRUE)
+     })
+```
+
 ## tSNE analysis
 
 ```{r resampled_tsne, results = 'hide'}
