@@ -2234,5 +2234,12 @@ nn_ids <- mutate(nn_ids,
 nn_ids
 
 clipr::write_clip(nn_ids)
+
+# check cell labels from OG experiment
+nns <- unique(unlist(nn_ids[, 3:ncol(nn_ids)]))
+nns <- nns[!str_detect(nns, "::resampled")] 
+sobj <- readRDS("original_sobj.rds")
+
+table(sobj@meta.data[nns, "cell_labels"])
 ```
 

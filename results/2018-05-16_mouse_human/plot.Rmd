@@ -1387,14 +1387,22 @@ plt_dat <- resampled_metadat %>%
                    "count_type"), sep = "_") %>% 
   select(-not_import)
 
+plt_dat <- filter(plt_dat, resampled == "Original") %>% 
+  mutate(species = ifelse(purity > 0.80, 
+                          "Human",
+                          ifelse(purity < 0.20,
+                                 "Mouse",
+                                 "multiplet"))) %>%
+  select(-purity, -resampled) %>% 
+  left_join(plt_dat, ., by = c("new_id", "library", "count_type")) %>% 
+  mutate(purity = ifelse(species == "Mouse",
+                         1 - purity,
+                         purity))
+           
 plt <- ggplot(plt_dat, aes(new_id, purity)) +
   geom_hline(aes(yintercept = 0.80), 
              linetype = "dashed", 
              color = "grey",
-             alpha = 0.75) +
-  geom_hline(aes(yintercept = 0.20), 
-             linetype = "dashed", 
-             color = "grey", 
              alpha = 0.75) +
   geom_point(aes(color = resampled), 
              position = position_dodge(width = 0.5)) +
@@ -1407,8 +1415,7 @@ plt <- ggplot(plt_dat, aes(new_id, purity)) +
   scale_color_manual(values = palette_okabeito, name = "") +
   guides(color = guide_legend(override.aes = list(size = 5))) +
   labs(x = "",
-       y = expression(paste( "Species Purity ", 
-                             frac("Human", "Human + Mouse")))) +
+       y = "Species Purity ") +
   theme(axis.text.x = element_text(angle = 90,
                                    hjust = 1,
                                    vjust = 0.5),
@@ -1417,4 +1424,7 @@ plt <- ggplot(plt_dat, aes(new_id, purity)) +
 save_plot("species_specificity.pdf", plt,
           base_height = 5, base_aspect_ratio = 1)
 
+plt_dat %>% 
+  spread(resampled, purity) %>% 
+  mutate(delta = Original - Resampled)
 ```
