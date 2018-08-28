@@ -1180,7 +1180,7 @@ save_plot("umi_edit_distance.pdf", plt)
 rm(umi_seqs)
 ```
 
-
+## tsnes
 ```{r plt_tsne}
 sobj <- readRDS("original_sobj.rds")
 
@@ -1300,22 +1300,18 @@ cell_dat <- left_join(og_cell_dat,
 
 resampled_cells <- ggplot(tsne_dat, 
                           aes(tSNE_1, tSNE_2)) + 
-  geom_point(aes(color = resampled), size = 0.1) + 
-  scale_color_manual(values = c("lightgrey",
-                                color_palette),
-                     name = "",
-                     labels = c("not resampled" = "Not Resampled",
-                                "original cell" = "Original Cell",
-                                "resampled" = "Resampled Cell")) +
+  geom_point(color = "lightgrey", size = 0.1) + 
   geom_segment(data = cell_dat, 
                aes(x = tSNE_1,
                    y = tSNE_2, 
                    xend = tSNE_1_resampled,
-                   yend = tSNE_2_resampled ),
-               color = color_palette[2],
+                   yend = tSNE_2_resampled,
+                   colour = species),
                linejoin = "mitre",
                arrow = arrow(length = unit(0.02, "npc"),
                              type = "open")) + 
+    scale_color_manual(values = color_palette,
+                     name = "") +
   labs(title = "",
        x = "tSNE 1",
        y = "tSNE 2") +
