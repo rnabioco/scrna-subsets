@@ -1127,7 +1127,7 @@ plt <- ggplot(plt_dat,
                geom = "errorbar",
                position = "dodge",
                linetype = "dashed") +
-  labs(y = "# of genes") + 
+  labs(y = "# of UMIs") + 
   scale_x_discrete(labels = cell_names) + 
   scale_y_continuous(labels = scales::comma) + 
   scale_color_manual(values = palette_okabeito, name = "") +
