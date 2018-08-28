@@ -477,5 +477,6 @@ p <- ggplot(plt_dat$wafergen,
 save_plot("wafergen_cell_pulldown.pdf", p,
           base_height = 6, base_width = 12)
 
-
+group_by(plt_dat$wafergen, library, class) %>% 
+  summarize(mean(percent_class), sd(percent_class))
 ```
