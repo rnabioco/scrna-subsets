@@ -6,20 +6,16 @@ library(openxlsx)
 library(Matrix)
 library(viridis)
 library(ggrepel)
+library(kentr) #devtools::install_github("kriemo/kentr")
+library(here)
 
 #### Paths ####
 
-project_dir <- path.expand("~/Projects/scrna-subsets")
+project_dir <- here::here()
 data_dir <- file.path(project_dir, "data")
 results_dir <- file.path(project_dir, "results")
 docs_dir <- file.path(project_dir, "docs")
 db_dir <- file.path(project_dir, "dbases")
-
-# vector of figure paths
-figs_dir <-  file.path(results_dir, "Figures") %>%
-  dir(pattern = "Figure_[1-4]$",
-      include.dirs = TRUE,
-      full.names = T)
 
 ##### colors #####
 
@@ -34,6 +30,7 @@ palette_okabeito <- c("#E69F00",
                       "#CC79A7", 
                       "#999999")
 color_palette <- palette_okabeito[5:6]
+
 ##### Functions ####
 
 #' When writing out excel workbooks using openxlsx::write.xlsx()

@@ -1,6 +1,7 @@
 """ Snakefile to produce figures """
 import os
-RESULTS = "../"
+RESULTS = ".."
+BASE_DIR = os.path.join("..", "..")
 
 PLOT_RMD = [
   ["2018-05-16_mouse_human", "plot"],
@@ -19,6 +20,13 @@ PROCESSING_RMD = [
 
 PLOT_RMD = [os.path.join(*x) for x in PLOT_RMD]
 
+PREPROCESSED_FILES = []
+with open("preprocessing_files.txt") as f:
+  for line in f:
+    fn = line.rstrip()
+    out_fn = os.path.join(BASE_DIR, os.path.normpath(fn))
+    PREPROCESSED_FILES.append(out_fn)
+    
 rule all:
   input:
     os.path.join("_site", "index.html"),
@@ -64,13 +72,14 @@ rule run_processing_markdown:
   render long running Rmarkdown 
   """
   input:
-    os.path.join(RESULTS, "{date}", "process.Rmd")
+    rmd = os.path.join(RESULTS, "{date}", "process.Rmd"),
+    files = PREPROCESSED_FILES
   output:
     os.path.join(RESULTS, "{date}", "process.html")
   log:
     "logs/process_{date}.txt",
   shell:
     """
-    R -e "rmarkdown::render('{input}')"
+    R -e "rmarkdown::render('{input.rmd}')"
     """
 
