@@ -205,7 +205,7 @@ norm_libsize <- function(sc_obj){
 
 sc_objs <- map(sc_objs, norm_libsize)
 
-avg_expr <- map(sc_objs, ~log2(rowMeans(2^.x$log_norm_umi)))
+avg_expr <- map(sc_objs, ~log2(Matrix::rowMeans(2^.x$log_norm_umi)))
 avg_expr <- map(avg_expr, ~data_frame(gene = names(.x),
                                      expr = unname(.x)))
 avg_expr_df <- bind_rows(avg_expr, .id = "library")
@@ -244,7 +244,7 @@ save_plot("ma_plots_umis.pdf", plt, base_aspect_ratio = 2)
 
 ```{r reads}
 
-avg_expr <- map(sc_objs, ~log2(rowMeans(2^.x$log_norm_reads)))
+avg_expr <- map(sc_objs, ~log2(Matrix::rowMeans(2^.x$log_norm_reads)))
 avg_expr <- map(avg_expr, ~data_frame(gene = names(.x),
                                      expr = unname(.x)))
 avg_expr_df <- bind_rows(avg_expr, .id = "library")
@@ -318,7 +318,7 @@ save_plot("cd3d_boxplot.pdf", plt,
 ```{r detect_rate}
 plt_dat <- map(sc_objs, 
     ~data_frame(gene = rownames(.x$umi_matrix), 
-                detection_rate = rowSums(.x$umi_matrix > 0) / ncol(.x$umi_matrix))) %>%
+                detection_rate = Matrix::rowSums(.x$umi_matrix > 0) / ncol(.x$umi_matrix))) %>%
   bind_rows(., .id = "library")
 
 plt_dat <- mutate(plt_dat,
@@ -370,16 +370,25 @@ probe_locs <- tribble(
   "chr11", 118342633, 118342652, "-", "LNA probe",
   "chr11", 118342622, 118342661, "-", "DNA probe"
 )
+```
+
+```{r get_gtf}
+url_link <- "ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_25/gencode.v25.annotation.gtf.gz"
 
 gtf_fn <- file.path(db_dir, "gencode.v25.annotation.gtf")
-bam_fn <- dir(file.path(project_dir, "data", "lna_gene"),
-              pattern = ".bam$",
-              recursive = T,
-              full.names = T)
-bam_fns <- str_subset(bam_fn , "jurkat") %>% 
-  str_subset(., "Aligned_bc_exons.bam")
+if(!file.exists(gtf_fn)){
+  dir.create(db_dir, showWarnings = F)
+  download.file(url_link, file.path(db_dir, "gencode.v25.annotation.gtf.gz"))
+  R.utils::gunzip(file.path(db_dir, "gencode.v25.annotation.gtf.gz"))
+}
 
-names(bam_fns) <- str_split(bam_fns, "/", simplify = T)[, 9]
+```
+
+```{r}
+bam_fns <- file.path(project_dir, "data", "lna_gene",
+                    libs, "star", "alignments", "Aligned_bc_exons.bam")
+
+names(bam_fns) <- libs
 
 gtf <- import(gtf_fn)
 gtf_df <- gtf %>% as_data_frame()

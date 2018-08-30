@@ -935,9 +935,7 @@ umi_files <- file.path(lib_data_dir, libs, "umis", "umigroups.txt.gz")
 umi_summaries <- map(umi_files[2],
                    ~compare_umis(umi_files[1], .x, return_summary = T))
 
-names(umi_summaries) <- umi_files[2] %>% 
-  str_split(., "/") %>% 
-  map_chr(~.x[7])
+names(umi_summaries) <- libs[2] 
 
 umi_summary <- bind_rows(umi_summaries, .id = "library")
 
@@ -1062,9 +1060,7 @@ save_plot("new_umis_boxplots.pdf", plt,
 umi_seqs <- map(umi_files[2],
                 ~compare_umis(umi_files[1], .x, return_summary = F))
 
-names(umi_seqs) <- umi_files[2] %>% 
-  str_split(., "/") %>% 
-  map_chr(~.x[9])
+names(umi_seqs) <- libs[2] 
 
 new_umis <- map(umi_seqs, 
     ~filter(.x, 
@@ -1738,10 +1734,6 @@ dev.off()
 
 ```{r compare_to_markers}
 sc_objs <- readRDS("processed_data.rds")
-mk_10x_markers <- read_tsv(file.path(results_dir, 
-                                      "2018-06-01",
-                                      "mk_markers_pbmc68k.txt")) %>% 
-  filter(p_val_adj < 0.01)
 
 new_genes <- sc_objs$mkcell_pulldown$new_genes[cells$mkcell_pulldown]
 genes_per_cell <- map(sc_objs,
@@ -1749,34 +1741,6 @@ genes_per_cell <- map(sc_objs,
 
 all_genes <- map(genes_per_cell, ~map(.x, names))
 
-summary_df <- map(all_genes,
-               ~map(.x,
-                    ~data_frame(n_markers = sum(.x %in%
-                                             mk_10x_markers$gene),
-                           total_genes = length(.x))))
-summary_df <- map(summary_df, bind_rows, .id = "cell") %>% 
-  bind_rows(., .id = "library")
-
-
-plt <- ggplot(summary_df,
-       aes(cell, n_markers)) +
-  geom_bar(aes(fill = library), 
-           stat = "identity",
-           position = "dodge") +
-  scale_x_discrete(labels = cell_names) + 
-  scale_fill_brewer(palette = "Set1",
-                    name = "",
-                    labels = lib_names) +
-  labs(y = "# of Megakaryocyte\nmarker genes") +
-  guides(fill = guide_legend(nrow = 2)) + 
-  theme(axis.text.x = element_text(angle = 45,
-                                   hjust = 1),
-        axis.title.x = element_blank(),
-        legend.pos = "top")
-  
-save_plot("nmarkers_10x_pbmcs.pdf", 
-          plt,
-          base_aspect_ratio = 0.75)
 
 og_mk_markers <- read_tsv(file.path("original_pbmc_markers.txt")) %>% 
   filter(cluster == "Megakaryocytes",

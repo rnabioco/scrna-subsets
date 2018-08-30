@@ -31,8 +31,7 @@ pretty_cell_names <- c(
 
 ```{r}
 fns <- dir(file.path(data_dir,
-                     "tcr_resampling",
-                     "cellranger"),
+                     "tcr_resampling"),
            recursive = T,
            full.names = T,
            pattern = "all_contig_annotations.csv$")
@@ -220,8 +219,8 @@ options(ucscChromosomeNames=FALSE)
   
 annot_fn <- file.path(data_dir, 
                     "tcr_resampling",
-                    "cellranger",
                     "original",
+                    "VDJ_newcellranger_Tcell",
 "outs", "consensus_annotations.json")
 
 annots <- jsonlite::read_json(annot_fn)
@@ -300,7 +299,12 @@ cdrTrack <- AnnotationTrack(range = per_feature_cdr,
 
 ```{r gviz}
 
-fa_fn <- file.path(db_dir, "tcr", "consensus.fasta")
+fa_fn <- file.path(data_dir,
+                   "tcr_resampling",
+                   "original",
+                   "VDJ_newcellranger_Tcell",
+                   "outs",
+                   "consensus.fasta")
 fa <- import(fa_fn)
 bam_fns <- dir(file.path(data_dir, 
                      "tcr_resampling"),
@@ -418,10 +422,10 @@ plot_cov(fasta = fa, tcr = tcrb,
 
 ```{r}
 annot_fn <- file.path(data_dir, 
-                    "tcr_resampling",
-                    "cellranger",
-                    "original",
-"outs", "consensus_annotations.json")
+                      "tcr_resampling",
+                      "original",
+                      "VDJ_newcellranger_Tcell",
+                      "outs", "consensus_annotations.json")
 
 annots <- jsonlite::read_json(annot_fn)
 
@@ -429,6 +433,12 @@ ids <- map(annots, ~.x["contig_name"] %>%
   as_data_frame()) %>% 
   bind_rows() %>% 
   mutate(row = as.character(row_number()))
+
+seqs <- map(annots, ~.x["sequence"] %>% 
+  as_data_frame()) %>% 
+  bind_rows() %>% 
+  mutate(row = as.character(row_number())) %>% 
+  dplyr::rename(seq = sequence)
 
 per_feature_annots <- left_join(ids, seqs, by = "row")
 
@@ -441,8 +451,8 @@ consensus_beta <- unique(filter(per_feature_annots,
 ## per_cell_contigs
 annot_fn <- file.path(data_dir, 
                     "tcr_resampling",
-                    "cellranger",
                     "original",
+                    "VDJ_newcellranger_Tcell",
 "outs", "all_contig_annotations.json")
 
 annots <- jsonlite::read_json(annot_fn)
@@ -471,10 +481,10 @@ og_annots <- data_frame(barcode = barcodes,
 
 ## resampled
 annot_fn <- file.path(data_dir, 
-                    "tcr_resampling",
-                    "cellranger",
-                    "resampled",
-"outs", "all_contig_annotations.json")
+                      "tcr_resampling",
+                      "resampled",
+                      "VDJ_newcellranger_JH109",
+                      "outs", "all_contig_annotations.json")
 
 annots <- jsonlite::read_json(annot_fn)
 
