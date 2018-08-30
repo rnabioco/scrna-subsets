@@ -11,6 +11,6 @@ download.file(url_path,
 
 untar(output_name, exdir = here("results", "notebook"))
 dir.create(here("tmp_data"))
-file.rename(here("results", "notebook", "data"), here("tmp_data"))
+file.rename(here("results", "notebook", "data"), here("data"))
 
 unlink(output_name)

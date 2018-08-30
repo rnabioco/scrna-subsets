@@ -42,8 +42,6 @@ data/tcr_resampling/resampled/VDJ_newcellranger_JH109/SC_VDJ_ASSEMBLER_CS/SC_VDJ
 data/tcr_resampling/resampled/VDJ_newcellranger_JH109/SC_VDJ_ASSEMBLER_CS/SC_VDJ_ASSEMBLER/ASSEMBLE_VDJ/fork0/join-u7895639838/_stderr
 data/tcr_resampling/resampled/VDJ_newcellranger_JH109/SC_VDJ_ASSEMBLER_CS/SC_VDJ_ASSEMBLER/ASSEMBLE_VDJ/fork0/join-u7895639838/_stdout
 data/tcr_resampling/resampled/VDJ_newcellranger_JH109/SC_VDJ_ASSEMBLER_CS/SC_VDJ_ASSEMBLER/ASSEMBLE_VDJ/fork0/join-u7895639838/files/
-data/tcr_resampling/resampled/VDJ_newcellranger_JH109/SC_VDJ_ASSEMBLER_CS/SC_VDJ_ASSEMBLER/ASSEMBLE_VDJ/fork0/join-u7895639838/files/contig_bam.bam
-data/tcr_resampling/resampled/VDJ_newcellranger_JH109/SC_VDJ_ASSEMBLER_CS/SC_VDJ_ASSEMBLER/ASSEMBLE_VDJ/fork0/join-u7895639838/files/contig_bam.bam.bai
 data/tcr_resampling/resampled/VDJ_newcellranger_JH109/SC_VDJ_ASSEMBLER_CS/SC_VDJ_ASSEMBLER/ASSEMBLE_VDJ/fork0/join-u7895639838/files/contig_fasta.fasta
 data/tcr_resampling/resampled/VDJ_newcellranger_JH109/SC_VDJ_ASSEMBLER_CS/SC_VDJ_ASSEMBLER/ASSEMBLE_VDJ/fork0/join-u7895639838/files/contig_fasta.fasta.fai
 data/tcr_resampling/resampled/VDJ_newcellranger_JH109/SC_VDJ_ASSEMBLER_CS/SC_VDJ_ASSEMBLER/ASSEMBLE_VDJ/fork0/join-u7895639838/files/contig_fastq.fastq
@@ -114,8 +112,6 @@ data/tcr_resampling/original/VDJ_newcellranger_Tcell/SC_VDJ_ASSEMBLER_CS/SC_VDJ_
 data/tcr_resampling/original/VDJ_newcellranger_Tcell/SC_VDJ_ASSEMBLER_CS/SC_VDJ_ASSEMBLER/ASSEMBLE_VDJ/fork0/join-ud209734292/_stderr
 data/tcr_resampling/original/VDJ_newcellranger_Tcell/SC_VDJ_ASSEMBLER_CS/SC_VDJ_ASSEMBLER/ASSEMBLE_VDJ/fork0/join-ud209734292/_stdout
 data/tcr_resampling/original/VDJ_newcellranger_Tcell/SC_VDJ_ASSEMBLER_CS/SC_VDJ_ASSEMBLER/ASSEMBLE_VDJ/fork0/join-ud209734292/files/
-data/tcr_resampling/original/VDJ_newcellranger_Tcell/SC_VDJ_ASSEMBLER_CS/SC_VDJ_ASSEMBLER/ASSEMBLE_VDJ/fork0/join-ud209734292/files/contig_bam.bam
-data/tcr_resampling/original/VDJ_newcellranger_Tcell/SC_VDJ_ASSEMBLER_CS/SC_VDJ_ASSEMBLER/ASSEMBLE_VDJ/fork0/join-ud209734292/files/contig_bam.bam.bai
 data/tcr_resampling/original/VDJ_newcellranger_Tcell/SC_VDJ_ASSEMBLER_CS/SC_VDJ_ASSEMBLER/ASSEMBLE_VDJ/fork0/join-ud209734292/files/contig_fasta.fasta
 data/tcr_resampling/original/VDJ_newcellranger_Tcell/SC_VDJ_ASSEMBLER_CS/SC_VDJ_ASSEMBLER/ASSEMBLE_VDJ/fork0/join-ud209734292/files/contig_fasta.fasta.fai
 data/tcr_resampling/original/VDJ_newcellranger_Tcell/SC_VDJ_ASSEMBLER_CS/SC_VDJ_ASSEMBLER/ASSEMBLE_VDJ/fork0/join-ud209734292/files/contig_fastq.fastq

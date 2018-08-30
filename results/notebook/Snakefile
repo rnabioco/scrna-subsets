@@ -61,7 +61,7 @@ rule run_plotting_markdown:
   output:
     os.path.join(RESULTS, "{rmd}.html")
   log:
-    "logs/process_{rmd}.txt",
+    "logs/plotting_{rmd}.txt",
   shell:
     """
     R -e "rmarkdown::render('{input.rmd}')"
