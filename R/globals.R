@@ -282,15 +282,15 @@ add_metadata <- function(sc_obj, dat, by_col = "barcode_10x"){
 
 compute_summaries <- function(sc_obj, by_column = "barcode_10x"){
   ## raw counts
-  total_umis <- colSums(sc_obj$umi_matrix)
+  total_umis <- Matrix::colSums(sc_obj$umi_matrix)
   names(total_umis) <- colnames(sc_obj$umi_matrix)
-  total_reads <- colSums(sc_obj$read_matrix)
+  total_reads <- Matrix::colSums(sc_obj$read_matrix)
   names(total_reads) <- colnames(sc_obj$read_matrix)
   
   ## norm counts
-  norm_total_umis <- colSums(sc_obj$norm_umi)
+  norm_total_umis <- Matrix::colSums(sc_obj$norm_umi)
   names(norm_total_umis) <- colnames(sc_obj$norm_umi)
-  norm_total_reads <- colSums(sc_obj$norm_reads)
+  norm_total_reads <- Matrix::colSums(sc_obj$norm_reads)
   names(norm_total_reads) <- colnames(sc_obj$norm_reads)
   
   sc_obj <- add_metadata(sc_obj, total_umis, by_col = by_column)
