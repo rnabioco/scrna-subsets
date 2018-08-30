@@ -3,7 +3,13 @@ library(gganimate)
 library(ggrepel)
 library(magick)
 library(cowplot)
-source("globals.R")
+library(here)
+
+project_dir <- here::here()
+data_dir <- file.path(project_dir, "data")
+results_dir <- file.path(project_dir, "results")
+color_palette <- c("#0072B2", 
+                   "#D55E00")
 
 cells <- list(
   mouse_human_cell_pulldown = c("GACGTTAGTGCCTGTG",
@@ -30,7 +36,9 @@ lib_names = c(
   mouse_human_cell_pulldown = "Resampled Library"
 )
 
-sc_objs <- readRDS(file.path(results_dir, "2018-05-16_mouse_human", "processed_data.rds"))
+sc_objs <- readRDS(file.path(results_dir, 
+                             "2018-05-16_mouse_human", 
+                             "processed_data.rds"))
 
 sc_metadat <- map(sc_objs, ~.x$meta_dat) %>% 
   bind_rows(.id = "library") %>% 
