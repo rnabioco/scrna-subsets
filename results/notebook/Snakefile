@@ -20,12 +20,6 @@ PROCESSING_RMD = [
 
 PLOT_RMD = [os.path.join(*x) for x in PLOT_RMD]
 
-PREPROCESSED_FILES = []
-with open("preprocessing_files.txt") as f:
-  for line in f:
-    fn = line.rstrip()
-    out_fn = os.path.join(BASE_DIR, os.path.normpath(fn))
-    PREPROCESSED_FILES.append(out_fn)
     
 rule all:
   input:
@@ -73,7 +67,6 @@ rule run_processing_markdown:
   """
   input:
     rmd = os.path.join(RESULTS, "{date}", "process.Rmd"),
-    files = PREPROCESSED_FILES
   output:
     os.path.join(RESULTS, "{date}", "process.html")
   log:
