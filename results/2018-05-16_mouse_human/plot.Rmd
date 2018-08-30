@@ -998,9 +998,7 @@ umi_files <- file.path(lib_data_dir, libs, "umis", "umigroups.txt.gz")
 umi_summaries <- map(umi_files[2],
                    ~compare_umis(umi_files[1], .x, return_summary = F))
 
-names(umi_summaries) <- umi_files[2] %>% 
-  str_split(., "/") %>% 
-  map_chr(~.x[9])
+names(umi_summaries) <- libs[2] 
 
 umi_summary <- bind_rows(umi_summaries, .id = "library")
 
@@ -1146,9 +1144,7 @@ save_plot("new_umis_species_specific_boxplots.pdf", plt,
 umi_seqs <- map(umi_files[2],
                 ~compare_umis(umi_files[1], .x, return_summary = F))
 
-names(umi_seqs) <- umi_files[2] %>% 
-  str_split(., "/") %>% 
-  map_chr(~.x[9])
+names(umi_seqs) <- libs[2]
 
 new_umis <- map(umi_seqs, 
     ~filter(.x, 
