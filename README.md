@@ -26,8 +26,3 @@ The snakemake data processing pipeline uses some C++ programs to perform fastq a
 cd bin
 make
 ```
-
-### dbases and docs
-
-Various reference files 
-
