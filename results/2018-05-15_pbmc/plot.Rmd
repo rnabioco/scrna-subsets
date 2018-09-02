@@ -137,6 +137,12 @@ sc_metadat %>%
   arrange(library, .by_group = T) %>% 
   summarize(more_genes = nth(n_genes, 2) - nth(n_genes, 1)) %>% 
   summarize(mean(more_genes), sd(more_genes))
+
+
+ sc_metadat %>%
+   group_by(library, resampled) %>%
+   count()
+ 
 ```
 
 ## cDNA duplication rate
@@ -1654,26 +1660,26 @@ plt_dat <- left_join(ma_dat, umi_summary,
                        levels = cell_names))
 
 seq_sat_plt <- ggplot(plt_dat,
-         aes(mean_expression_log2,
-             log2_diff)) +
-    geom_hline(aes(yintercept = 0), 
-               linetype = "dashed", 
-               colour = "grey") + 
-    geom_point(aes(color = read_saturation), 
+                      aes(mean_expression_log2,
+                          log2_diff)) +
+  geom_hline(aes(yintercept = 0), 
+             linetype = "dashed", 
+             colour = "grey") + 
+  geom_point(aes(color = read_saturation), 
                size = 0.25) +
-    scale_colour_gradientn(colours = rev(brewer.pal(9, "Reds")),
-                           name = "Sequencing\nSaturation",
-                           na.value = "lightgrey") +
-    facet_wrap(~cell, nrow = 1) +
-    labs(x = expression(paste("Abundance (log"[2], ")")),
-         y = expression(paste(frac("Resampled","Original"), 
-                              " (log"[2], ")"))) +
-    theme(legend.position = "top",
-          legend.key.width = unit(7.5, 
-                                  "mm"),
-          plot.margin = unit(rep(0, 4), "lines"))
-        #  legend.text = element_text(size = 10),
-         # legend.title = element_text(size = 10))
+  scale_colour_gradientn(colours = rev(brewer.pal(9, "Reds")),
+                         name = "Sequencing\nSaturation",
+                         na.value = "lightgrey") +
+  facet_wrap(~cell, nrow = 1) +
+  labs(x = expression(paste("Abundance (log"[2], ")")),
+       y = expression(paste(frac("Resampled","Original"), 
+                            " (log"[2], ")"))) +
+  theme(legend.position = "top",
+        legend.key.width = unit(7.5, 
+                                "mm"),
+        plot.margin = unit(rep(0, 4), "lines"))
+#  legend.text = element_text(size = 10),
+# legend.title = element_text(size = 10))
 
 save_plot("per_cell_MA_seq_saturation.pdf", seq_sat_plt, 
           base_height = 4, base_aspect_ratio = 2.5)
@@ -1682,6 +1688,101 @@ plt <- plot_grid(seq_sat_plt, marker_plt, nrow = 2,
                  align = "hv")
 save_plot("per_cell_MA_combined_plots.pdf", plt, nrow = 2, ncol = 1,
           base_height = 4, base_aspect_ratio = 2.5)
+
+
+# set seq saturation to median value for previously undetected genes
+plt_dat_hex <- mutate(plt_dat, 
+                      read_saturation = ifelse(is.na(read_saturation),
+                                               median(read_saturation,
+                                                      na.rm = T),
+                                               read_saturation))
+hex_plt <- ggplot(plt_dat_hex,
+                      aes(mean_expression_log2,
+                          log2_diff)) +
+  geom_hline(aes(yintercept = 0), 
+             linetype = "dashed", 
+             colour = "grey") + 
+  stat_summary_hex(aes(z = read_saturation),
+           bins = 25,
+           size = 0.25,
+           fun = function(x) mean(x, na.rm = T)) +
+  scale_fill_gradientn(colours = rev(brewer.pal(9, "Reds")),
+                         name = "Sequencing\nSaturation",
+                         na.value = "lightgrey") +
+  facet_wrap(~cell, nrow = 1) +
+  labs(x = expression(paste("Abundance (log"[2], ")")),
+       y = expression(paste(frac("Resampled","Original"), 
+                            " (log"[2], ")"))) +
+  theme(legend.position = "top",
+        legend.key.width = unit(7.5, 
+                                "mm"),
+        plot.margin = unit(rep(0, 4), "lines"))
+
+save_plot("per_cell_MA_seq_saturation_hexplot_with_medians.pdf", hex_plt, 
+          base_height = 4, base_aspect_ratio = 2.5)
+
+# dont plot undetected
+hex_plt <- ggplot(plt_dat,
+                      aes(mean_expression_log2,
+                          log2_diff)) +
+  geom_hline(aes(yintercept = 0), 
+             linetype = "dashed", 
+             colour = "grey") + 
+  stat_summary_hex(aes(z = read_saturation),
+           bins = 30,
+           size = 0.25,
+           fun = function(x) mean(x, na.rm = T)) +
+  scale_fill_gradientn(colours = rev(brewer.pal(9, "Reds")),
+                         name = "Sequencing\nSaturation",
+                         na.value = "lightgrey") +
+  facet_wrap(~cell, nrow = 1) +
+  labs(x = expression(paste("Abundance (log"[2], ")")),
+       y = expression(paste(frac("Resampled","Original"), 
+                            " (log"[2], ")"))) +
+  theme(legend.position = "top",
+        legend.key.width = unit(7.5, 
+                                "mm"),
+        plot.margin = unit(rep(0, 4), "lines"))
+
+save_plot("per_cell_MA_seq_saturation_hexplot_without_undetected.pdf", hex_plt, 
+          base_height = 4, base_aspect_ratio = 2.5)
+
+# plot with undetected added with mean of megakaryocte read_saturation
+
+all_megs_seq_sat <- umi_summary %>% 
+  group_by(gene) %>% 
+  summarize(mean_read_saturation = mean(read_saturation, 
+                                   na.rm = T))
+
+plt_dat_hex <- left_join(plt_dat, all_megs_seq_sat, by = "gene") %>% 
+  mutate(read_saturation = ifelse(is.na(read_saturation),
+                                               mean_read_saturation,
+                                               read_saturation))
+hex_plt <- ggplot(plt_dat_hex,
+                      aes(mean_expression_log2,
+                          log2_diff)) +
+  geom_hline(aes(yintercept = 0), 
+             linetype = "dashed", 
+             colour = "grey") + 
+  stat_summary_hex(aes(z = read_saturation),
+           bins = 25,
+           size = 0.25,
+           fun = function(x) mean(x, na.rm = T)) +
+  scale_fill_gradientn(colours = rev(brewer.pal(9, "Reds")),
+                         name = "Sequencing\nSaturation",
+                         na.value = "lightgrey") +
+  facet_wrap(~cell, nrow = 1) +
+  labs(x = expression(paste("Abundance (log"[2], ")")),
+       y = expression(paste(frac("Resampled","Original"), 
+                            " (log"[2], ")"))) +
+  theme(legend.position = "top",
+        legend.key.width = unit(7.5, 
+                                "mm"),
+        plot.margin = unit(rep(0, 4), "lines"))
+
+save_plot("per_cell_MA_seq_saturation_hexplot_with_cluster_medians.pdf", hex_plt, 
+          base_height = 4, base_aspect_ratio = 2.5)
+
 ```
 
 
@@ -1761,10 +1862,11 @@ summary_df <- map(summary_df, bind_rows, .id = "cell") %>%
 
 plt <- ggplot(summary_df,
        aes(cell, n_markers)) +
-  geom_point(aes(color = library), 
+  geom_bar(aes(fill = library), 
            stat = "identity",
-           position = position_dodge(width = 0.25)) +
-  scale_color_manual(values = color_palette,
+       #    width = 0.9) +
+           position = position_dodge(width = 0.9)) +
+  scale_fill_manual(values = color_palette,
                      name = "",
                     labels = lib_names) +
   ylim(c(0, max(summary_df$n_markers))) + 
@@ -1958,11 +2060,12 @@ summary_dat <- bind_rows(list("Original Library" = og_summary,
           .id = "expt")
 summary_dat <- mutate(summary_dat,
                       n_mks = as.integer(n_mks) + 4) ## to account for resampled cells
+
 plt <- ggplot(summary_dat, 
        aes(n_mks, n)) +
   geom_point(aes(color = expt), 
-           stat = "identity", 
-           position = position_dodge(width = 1)) +
+           stat = "identity") +
+  geom_line(aes(color = expt)) +
   scale_color_manual(values = color_palette, name = "") +
   ylim(c(0, max(summary_dat$n))) + 
   labs(x = "# of Megakaryocytes in Cluster",
