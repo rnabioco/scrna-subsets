@@ -16,7 +16,7 @@ This will generate a `data` directory in the base project directory with all the
 
 ## Requirements
 
-~12Gb of free space and ~8Gb of RAM.
+~12Gb of free space, ~12Gb of RAM, and at least 3 cores.
 
 The following R packages are required:
 ```R
@@ -30,6 +30,7 @@ here
 Seurat
 rjson
 ggrepel
+doParallel
 
 # Bioconductor
 GenomicFeatures
