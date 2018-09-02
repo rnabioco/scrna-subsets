@@ -632,8 +632,7 @@ if(!(resampled_file & not_resampled_file)){
   not_re_mks <- mks[mks$resampled == "not resampled", ]
   not_mks <- sobj@meta.data[sobj@meta.data$cell_labels != "Megakaryocytes", ]
   
-  n_mks_to_test <- seq(0, nrow(not_re_mks), by = 5)
-  
+  n_mks_to_test <- seq(0, nrow(not_re_mks), by = 1)
   set.seed(42)
   not_re_mk_sampled <- map(n_mks_to_test, 
                            ~sample_n(not_re_mks, .x))
@@ -644,16 +643,20 @@ if(!(resampled_file & not_resampled_file)){
   
   all_cells_minus_not_sampled_mks <- map(sampled_mks,
                                          ~c(.x, rownames(not_mks)))
-  
-  subsampled_markers <- map(all_cells_minus_not_sampled_mks, 
-                            function(x){
-                              tmp_dat <- SubsetData(sobj, cells.use = x)
-                              markers <- FindMarkers(tmp_dat, 
-                                                     "Megakaryocytes",
-                                                     only.pos = T)
-                              markers
-                            })
-  
+  library(doParallel)
+  no_cores <- 3  
+  cl <- makeCluster(no_cores)  
+  registerDoParallel(cl)  
+  result <- foreach(i=all_cells_minus_not_sampled_mks, 
+                    .packages =
+                      c("Seurat")) %dopar% {
+                        tmp_dat <- SubsetData(sobj, cells.use = i)
+                        markers <- FindMarkers(tmp_dat, 
+                                               "Megakaryocytes",
+                                               only.pos = T)
+                        markers
+                      }
+  stopCluster(cl)
   
   og_rs_mks <- og_sobj@meta.data[og_sobj@meta.data$resampled, ]
   
@@ -666,7 +669,8 @@ if(!(resampled_file & not_resampled_file)){
   
   subsampled_markers_og <- map(all_cells_minus_not_sampled_mks,
                                function(x){
-                                 tmp_dat <- SubsetData(og_sobj, cells.use = x)
+                                 tmp_dat <- SubsetData(og_sobj, 
+                                                       cells.use = x)
                                  markers <- FindMarkers(tmp_dat, 
                                                         "Megakaryocytes",
                                                         only_pos = T)
