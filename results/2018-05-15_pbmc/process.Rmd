@@ -555,7 +555,8 @@ new_genes <- setdiff(rownames(no_resampled_mat), rownames(resampled_mat))
 zero_mat <- matrix(0L, 
                    ncol = ncol(resampled_mat), 
                    nrow = length(new_genes),
-                   dimnames = list(new_genes, colnames(resampled_mat)))
+                   dimnames = list(new_genes, 
+                                   colnames(resampled_mat)))
 resampled_mat <- rbind(resampled_mat, 
       zero_mat)
 ## match original matrix roworder
@@ -615,8 +616,9 @@ saveRDS(sobj, "rs_v2_sobj.rds")
 
 Rui had a great idea to downsample the # of cells in the MK cluster and find markers with the original cells, and the subsampled cells.
 
-There are 68 mks in this data set. 
-```{r downsample}
+There are 69 mks in this data set. 
+```{r downsample, eval = F}
+library(doParallel)
 og_sobj <- readRDS("original_sobj.rds")
 sobj <- readRDS("rs_v2_sobj.rds")
 
@@ -643,11 +645,11 @@ if(!(resampled_file & not_resampled_file)){
   
   all_cells_minus_not_sampled_mks <- map(sampled_mks,
                                          ~c(.x, rownames(not_mks)))
-  library(doParallel)
+
   no_cores <- 3  
   cl <- makeCluster(no_cores)  
   registerDoParallel(cl)  
-  result <- foreach(i=all_cells_minus_not_sampled_mks, 
+  subsampled_markers <- foreach(i=all_cells_minus_not_sampled_mks, 
                     .packages =
                       c("Seurat")) %dopar% {
                         tmp_dat <- SubsetData(sobj, cells.use = i)
@@ -666,16 +668,19 @@ if(!(resampled_file & not_resampled_file)){
   
   all_cells_minus_not_sampled_mks <- map(sampled_mks,
                                          ~c(.x, rownames(not_mks)))
+  cl <- makeCluster(no_cores)  
+  registerDoParallel(cl)  
+  subsampled_markers_og <- foreach(i=all_cells_minus_not_sampled_mks, 
+                    .packages =
+                      c("Seurat")) %dopar% {
+                        tmp_dat <- SubsetData(og_sobj, cells.use = i)
+                        markers <- FindMarkers(tmp_dat, 
+                                               "Megakaryocytes",
+                                               only.pos = T)
+                        markers
+                      }
+  stopCluster(cl)
   
-  subsampled_markers_og <- map(all_cells_minus_not_sampled_mks,
-                               function(x){
-                                 tmp_dat <- SubsetData(og_sobj, 
-                                                       cells.use = x)
-                                 markers <- FindMarkers(tmp_dat, 
-                                                        "Megakaryocytes",
-                                                        only_pos = T)
-                                 markers
-                               })
   subsampled_markers <- map(subsampled_markers, 
                             ~tibble::rownames_to_column(.x, "gene")) 
   names(subsampled_markers) <- n_mks_to_test

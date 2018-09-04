@@ -143,6 +143,10 @@ sc_metadat %>%
    group_by(library, resampled) %>%
    count()
  
+  sc_metadat %>%
+   group_by(library, resampled) %>%
+   mutate(total_reads / og_total_reads) %>% 
+    filter(resampled)
 ```
 
 ## cDNA duplication rate
@@ -1768,12 +1772,13 @@ hex_plt <- ggplot(plt_dat_hex,
            bins = 25,
            size = 0.25,
            fun = function(x) mean(x, na.rm = T)) +
-  scale_fill_gradientn(colours = rev(brewer.pal(9, "Reds")),
+  scale_fill_gradientn(colours = rev(brewer.pal(9, "RdYlBu")),
                          name = "Sequencing\nSaturation",
                          na.value = "lightgrey") +
   facet_wrap(~cell, nrow = 1) +
-  labs(x = expression(paste("Abundance (log"[2], ")")),
-       y = expression(paste(frac("Resampled","Original"), 
+  labs(x = expression(paste("Average Expression (log"[2], 
+                            " UMIs from Original and Resampled)")),  
+       y = expression(paste("UMIs ", frac("Resampled","Original"), 
                             " (log"[2], ")"))) +
   theme(legend.position = "top",
         legend.key.width = unit(7.5, 
@@ -2043,17 +2048,25 @@ Rui had a great idea to downsample the # of cells in the MK cluster and find mar
 
 There are 68 mks in this data set. 
 ```{r}
-subsampled_markers_og <- read_tsv("downsampled_mk_cluster_markers_no_resampling.txt") 
+subsampled_markers_og <- read_tsv(file.path("..",
+                                            "2018-09-04_downsampling",                                 "downsampled_mk_cluster_markers_no_resampling.txt.gz")) 
 
-subsampled_markers <- read_tsv("downsampled_mk_cluster_markers_resampling.txt")
+subsampled_markers <- read_tsv(file.path("..",
+                                         "2018-09-04_downsampling",                                       "downsampled_mk_cluster_markers_resampling.txt.gz"))
 
 og_summary <- subsampled_markers_og %>% 
   filter(p_val_adj < 0.01) %>% 
-  count(n_mks)
+  count(replicate, n_mks) %>% 
+  group_by(n_mks) %>% 
+  summarize(mean_n = mean(n),
+            sd_n = sd(n))
 
 rs_summary <- subsampled_markers %>% 
     filter(p_val_adj < 0.01) %>% 
-  count(n_mks)
+  count(replicate, n_mks) %>% 
+  group_by(n_mks) %>% 
+  summarize(mean_n = mean(n),
+            sd_n = sd(n))
 
 summary_dat <- bind_rows(list("Original Library" = og_summary,
                               "Resampled Library" = rs_summary),
@@ -2062,12 +2075,15 @@ summary_dat <- mutate(summary_dat,
                       n_mks = as.integer(n_mks) + 4) ## to account for resampled cells
 
 plt <- ggplot(summary_dat, 
-       aes(n_mks, n)) +
-  geom_point(aes(color = expt), 
-           stat = "identity") +
+       aes(n_mks, mean_n))+
   geom_line(aes(color = expt)) +
+  geom_ribbon(aes(ymin= mean_n - sd_n, 
+                  ymax = mean_n + sd_n,
+                  fill = expt), 
+              alpha = 0.2) +
   scale_color_manual(values = color_palette, name = "") +
-  ylim(c(0, max(summary_dat$n))) + 
+  scale_fill_manual(values = color_palette, name = "") +
+  ylim(c(0, max(summary_dat$mean_n))) + 
   labs(x = "# of Megakaryocytes in Cluster",
        y = "# of Megakaryocyte\nmarkers discovered") +
   theme(legend.pos = "none") +
@@ -2148,11 +2164,11 @@ plt <- ggplot(plt_dat,
          geom_line(aes(color = library)) +
   scale_color_manual(values = color_palette) +
   labs(x = "# of Megakaryocytes in Cluster",
-       y = "# of Genes Detected\nin Cluster") +
+       y = "# of Genes\nDetected in Cluster") +
   theme(legend.position = "none")
 
 save_plot("resampling_gene_discovery_sensitivity.pdf",
-          plt)
+          plt, base_aspect_ratio = 1)
 
 ## repeat sampling to get mean +/- sd 
 
@@ -2198,16 +2214,21 @@ plt_dat <-  mutate(plt_dat, n_cells = as.integer(n_cells)) %>%
 
 plt <- ggplot(plt_dat, 
        aes(n_cells, mean_genes)) +
-         geom_line(aes(color = library)) +
-#  geom_linerange(aes(ymin = mean_genes - sd_genes,
-#                     ymax = mean_genes + sd_genes)) + 
+       geom_line(aes(color = library)) +
+       geom_ribbon(aes(ymin = mean_genes - sd_genes,
+                      ymax = mean_genes + sd_genes,
+                      fill = library), 
+                   alpha = 0.2) + 
   scale_color_manual(values = color_palette) +
+  scale_fill_manual(values = color_palette) +
   labs(x = "# of Megakaryocytes in Cluster",
-       y = "# of Genes Detected\nin Cluster") +
+       y = "# of Genes\nDetected in Cluster") +
   theme(legend.position = "none")
 
 save_plot("resampling_gene_discovery_sensitivity_with_replication.pdf",
-          plt, base_height = 4, base_aspect_ratio = 1)
+          plt, 
+          base_height = 4, 
+          base_aspect_ratio = 1.05)
 
 
 original_mk_genes <- sc_objs$kirkpatrick$genes_detected[mks]
