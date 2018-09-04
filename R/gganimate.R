@@ -5,7 +5,7 @@ library(magick)
 library(cowplot)
 library(here)
 
-project_dir <- here::here()
+project_dir <- file.path("~", "Projects", "scrna-subsets")
 data_dir <- file.path(project_dir, "data")
 results_dir <- file.path(project_dir, "results")
 color_palette <- c("#0072B2", 
@@ -153,11 +153,17 @@ sc_metadat <- map(sc_objs, ~.x$meta_dat) %>%
   arrange(resampled)
 
 
-plt3 <- ggplot(sc_metadat, aes(total_umis, cDNA_duplication)) +
+plt_dat <- mutate(sc_metadat, 
+                  library = as.character(library),
+                  library = ifelse(library == "Resampled Library",
+                                               "Resampling ...",
+                                               library))
+
+plt3 <- ggplot(plt_dat, aes(total_umis, cDNA_duplication)) +
   geom_point(aes(color = resampled), size = 0.5) +
   scale_x_continuous(labels = scales::comma) +
   scale_color_manual(values = color_palette) +
-  geom_text_repel(data = filter(sc_metadat, resampled),
+  geom_text_repel(data = filter(plt_dat, resampled),
                   aes(label = ".",
                       color = resampled),
                   size = 0,
@@ -176,16 +182,17 @@ plt3 <- ggplot(sc_metadat, aes(total_umis, cDNA_duplication)) +
                            "points")) +
   labs(x = "# of UMIs",
        y = "Sequencing saturation",
-         title = "{closest_state}") + 
+         title = "{next_state}") + 
   transition_states(
     library,
     transition_length = 2,
-    state_length = 1
+    state_length = 1,
+    wrap = F
   ) +
   ease_aes('linear')
 
+plt3 <- animate(plt3)
 plt3
-
 
 # make multiple gifs into one
 # see https://github.com/thomasp85/gganimate/wiki/Animation-Composition
