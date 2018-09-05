@@ -3,7 +3,9 @@
 This repo contains a scRNA-seq data processing pipeline and scripts for analysis for transcriptome resampling libraries. RMarkdown documents are provided to produce figures from the following publication.
 
 
->Kent A. Riemondy, Monica Ransom, Christopher Alderman, Austin E. Gillen, Rui Fu, and Jay R. Hesselberth. Recovery and analysis of transcriptome subsets from pooled single-cell RNA-seq libraries. To be Submitted.
+>Recovery and analysis of transcriptome subsets from pooled single-cell RNA-seq libraries
+Kent A. Riemondy Jr., Monica Ransom, Christopher Alderman, Austin E. Gillen, Rui Fu, Jessica Finlay-Schultz, Gregory Kirkpatrick, Jorge Di Paola, Peter Kabos, Carol A. Sartorius, Jay R. Hesselberth
+bioRxiv 408740; doi: https://doi.org/10.1101/408740.
 
 
 ### pipeline
