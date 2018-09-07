@@ -10,7 +10,7 @@ download.file(url_path,
               output_name)
 
 untar(output_name, exdir = here("results", "notebook"))
-dir.create(here("tmp_data"))
+dir.create(here("data"), showWarnings = FALSE)
 
 file.rename(here("results", "notebook", "data", 
                  "results_rds",

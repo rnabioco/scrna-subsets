@@ -23,11 +23,14 @@ Following reamplification the 4 cell libraries were pooled and resequenced toget
 1. A matrix with UMIs per cell (column) per gene (rows) (dge_matrix.txt)
 1. A flatfile with per UMI information (umigroups.txt.gz)
 
-This RMarkdown document will produce the following figures:
+This RMarkdown document will produce the following processed data files:
 
-1. ...
-1. ...
-1. ...
+1. `original_sobj.rds` a `Seurat` object built from the original library
+1. `rs_sobj.rds` a `Seurat` object built from the original library, with the resampled cells added as additional cells.  
+1. `rs_v2_sobj.rds` a `Seurat` object built from the original library, with the resampled cells replacing the original cell values. 
+1. `processed_data.rds` A list object with umi matrix, read matrix, normalized data, detected genes, and various metadata metrics in a data frame. 
+1. `original_pbmc_markers.txt` Marker genes from the original library
+
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)

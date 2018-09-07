@@ -23,11 +23,35 @@ Following reamplification the 4 cell libraries were pooled and resequenced toget
 1. A matrix with UMIs per cell (column) per gene (rows) (dge_matrix.txt)
 1. A flatfile with per UMI information (umigroups.txt.gz)
 
-This RMarkdown document will produce the following figures:
+This RMarkdown document use the following processed data files generated
+by the `process.Rmd`:
 
-1. ...
-1. ...
-1. ...
+1. `original_sobj.rds` a `Seurat` object built from the original library
+1. `rs_sobj.rds` a `Seurat` object built from the original library, with the resampled cells added as additional cells.  
+1. `rs_v2_sobj.rds` a `Seurat` object built from the original library, with the resampled cells replacing the original cell values. 
+1. `processed_data.rds` A list object with umi matrix, read matrix, normalized data, detected genes, and various metadata metrics in a data frame. 
+1. ``original_pbmc_markers.txt` marker genes from the original matrix  
+
+And the following text files:
+
+1. `downsampled_mk_cluster_markers_no_resampling.txt.gz` Markers produced with increasing numberd of megakaryocytes. Produced by `2018-09-04_downsampling/downsample.R`.
+1. `downsampled_mk_cluster_markers_resampling.txt.gz` Produced by `2018-09-04_downsampling/downsample.R`.
+
+The following figures will be generated:
+
+figure | filename  
+--------- | -------
+Fig. 2A | original_pbmc_annotated_tsne_arrows.pdf 
+Fig. 2B | umi_ratio_MA.pdf  
+Fig. 2C | cDNA_duplication 
+Fig. 2D | new_genes_barplot.pdf
+Fig. 2D | new_umis_barplot.pdf
+Fig. 2E-G | resampled_vs_original_closeup.pdf
+Fig. 3A | per_cell_MA_seq_saturation_hexplot_with_cluster_medians.pdf
+Fig. 3B | nmarkers_kirkpatrick_pbmcs.pdf
+Fig. 3C | resampling_marker_discovery_sensitivity.pdf
+Fig. 3D | resampling_gene_discovery_sensitivity_with_replication.pdf
+
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
