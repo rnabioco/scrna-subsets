@@ -628,9 +628,9 @@ plt_dat <- mutate(plt_dat,
 plt <- ggplot(plt_dat, 
        aes(type, count, 
            group = resampled)) +
-  geom_jitter(aes(color = resampled),
-              size = 0.25,
-              position = position_jitterdodge(dodge.width=1)) +
+  geom_quasirandom(aes(color = resampled), 
+                   method = "tukeyDense", 
+                   dodge.width= 1) +
   stat_summary(fun.y = "mean", 
                fun.ymin = "mean", 
                fun.ymax = "mean", 
@@ -642,12 +642,13 @@ plt <- ggplot(plt_dat,
   scale_x_discrete(labels = cell_names) + 
   scale_y_continuous(labels = scales::comma) + 
   scale_color_manual(values = palette_okabeito, name = "") +
-  guides(colour = guide_legend(override.aes = list(size = 2))) +
+  guides(colour = guide_legend(override.aes = list(size = 2),
+                               nrow = 2)) +
   theme(axis.title.x = element_blank(),
         legend.position = "top",
         plot.margin = unit(c(5.5, 50.5, 5.5, 5.5), 
                            "points"),
-        legend.key.size = unit(10, "pt")) 
+        legend.key.size = unit(12, "pt")) 
 
 save_plot("new_genes_boxplots.pdf", plt, 
           base_aspect_ratio = 1.1, base_height = 4) 
@@ -1064,9 +1065,9 @@ plt_dat <- mutate(plt_dat,
 plt <- ggplot(plt_dat, 
        aes(class, count, 
            group = resampled)) +
-  geom_jitter(aes(color = resampled),
-              size = 0.25,
-              position = position_jitterdodge(dodge.width=1)) +
+  geom_quasirandom(aes(color = resampled), 
+                   method = "tukeyDense", 
+                   dodge.width= 1) +
   stat_summary(fun.y = "mean", 
                fun.ymin = "mean", 
                fun.ymax = "mean", 
@@ -1078,12 +1079,13 @@ plt <- ggplot(plt_dat,
   scale_x_discrete(labels = cell_names) + 
   scale_y_continuous(labels = scales::comma) + 
   scale_color_manual(values = palette_okabeito, name = "") +
-  guides(colour = guide_legend(override.aes = list(size = 2))) +
+  guides(colour = guide_legend(override.aes = list(size = 2),
+                               nrow = 2)) +
   theme(axis.title.x = element_blank(),
         legend.position = "top",
         plot.margin = unit(c(5.5, 50.5, 5.5, 5.5), 
                            "points"),
-        legend.key.size = unit(10, "pt")) 
+        legend.key.size = unit(12, "pt")) 
 
 save_plot("new_umis_boxplots.pdf", plt, 
            base_aspect_ratio = 1.1, base_height = 4) 
@@ -1900,15 +1902,16 @@ plt <- ggplot(summary_df,
                     labels = lib_names) +
   ylim(c(0, max(summary_df$n_markers))) + 
   labs(y = "# of Megakaryocyte\nmarker genes") +
-  guides(fill = guide_legend(nrow = 2)) + 
+  guides(fill = guide_legend(nrow = 1)) + 
   theme(axis.text.x = element_text(angle = 45,
                                    hjust = 1),
         axis.title.x = element_blank(),
-        legend.pos = "none")
+        legend.text = element_text(size = 10.5),
+        legend.position = "top")
   
 save_plot("nmarkers_kirkpatrick_pbmcs.pdf", 
           plt,
-          base_aspect_ratio = 1)
+          base_aspect_ratio = 1.05)
 plt
 ```
 
@@ -2110,13 +2113,12 @@ plt <- ggplot(summary_dat,
   ylim(c(0, max(summary_dat$mean_n))) + 
   labs(x = "# of Megakaryocytes in Cluster",
        y = "# of Megakaryocyte\nmarkers discovered") +
-  theme(legend.pos = "none") +
-  guides(fill = guide_legend(nrow = 2))
+  theme(legend.pos = "top") +
+  guides(fill = guide_legend(nrow = 1))
 
 save_plot("resampling_marker_discovery_sensitivity.pdf", 
           plt, 
-          base_height = 4,
-          base_aspect_ratio = 1)
+          base_aspect_ratio = 1.1)
 ```
 
 
@@ -2236,6 +2238,10 @@ plt_dat <-  mutate(plt_dat, n_cells = as.integer(n_cells)) %>%
   summarize(mean_genes = mean(n_genes),
             sd_genes = sd(n_genes))
 
+new_names <- c("Original Library", "Resampled Library")
+names(new_names) <- c("original_genes", "resampled_genes")
+plt_dat <- mutate(plt_dat, library = new_names[library])
+
 plt <- ggplot(plt_dat, 
        aes(n_cells, mean_genes)) +
        geom_line(aes(color = library)) +
@@ -2243,16 +2249,16 @@ plt <- ggplot(plt_dat,
                       ymax = mean_genes + sd_genes,
                       fill = library), 
                    alpha = 0.2) + 
-  scale_color_manual(values = color_palette) +
-  scale_fill_manual(values = color_palette) +
+  ylim(c(0, max(plt_dat$mean_genes))) + 
+  scale_color_manual(values = color_palette, name = "") +
+  scale_fill_manual(values = color_palette, name = "") +
   labs(x = "# of Megakaryocytes in Cluster",
        y = "# of Genes\nDetected in Cluster") +
-  theme(legend.position = "none")
+  theme(legend.position = "top")
 
 save_plot("resampling_gene_discovery_sensitivity_with_replication.pdf",
           plt, 
-          base_height = 4, 
-          base_aspect_ratio = 1.05)
+          base_aspect_ratio = 1.1)
 
 
 original_mk_genes <- sc_objs$kirkpatrick$genes_detected[mks]

@@ -297,11 +297,15 @@ plt_dat <- gather(plt_dat, gene_name, expr, -cell, -library)
 
 plt <- ggplot(plt_dat,  
        aes(library, expr)) + 
-  geom_jitter(size = 0.1, width = 0.25) + 
-  geom_violin(aes(fill = library), 
-               alpha = 0.75) +
+  #geom_jitter(size = 0.1, width = 0.25) + 
+  #geom_violin(aes(fill = library), 
+  #             alpha = 0.75) +
+    geom_quasirandom(aes(color = library), 
+                   method = "tukeyDense", 
+                   dodge.width= 1, 
+                   size = 0.25) +
   facet_grid(~gene_name) + 
-  scale_fill_manual(values = palette_okabeito,
+  scale_color_manual(values = palette_okabeito,
                     labels = labeller(fill = pretty_names_all_libs)) +
   labs(x = "",
        y = expression(paste("Log"[2],

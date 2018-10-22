@@ -8,6 +8,7 @@ library(viridis)
 library(ggrepel)
 library(kentr) #devtools::install_github("kriemo/kentr")
 library(here)
+library(ggbeeswarm)
 
 #### Paths ####
 

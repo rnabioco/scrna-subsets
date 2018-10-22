@@ -38,9 +38,9 @@ figure | filename
 --------- | -------
 Fig. 1CD | umi_scatterplot_human_mouse.pdf 
 Fig. 1E | umi_ratio_MA.pdf  
-Fig. 1F | cDNA_duplication 
-Fig. 1G | new_genes_species_specific_barplot.pdf
-Fig. 1H | new_umis_species_specific_barplot.pdf
+Fig. 1F | cDNA_duplication.pdf 
+Fig. 1G | new_genes_species_specific_boxplot.pdf
+Fig. 1H | new_umis_species_specific_boxplot.pdf
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -657,7 +657,7 @@ plt <- ggplot(plt_dat,
         legend.position = "top",
         plot.margin = unit(c(5.5, 50.5, 5.5, 5.5), 
                            "points"),
-        legend.key.size = unit(10, "pt")) 
+        legend.key.size = unit(12, "pt")) 
 
 save_plot("new_genes_species_specific_barplot.pdf", plt, 
           base_width = 4, base_height = 5) 
@@ -682,9 +682,9 @@ plt_dat <- mutate(plt_dat,
 plt <- ggplot(plt_dat, 
        aes(type, count, 
            group = resampled)) +
-  geom_jitter(aes(color = resampled),
-              size = 0.25,
-              position = position_jitterdodge(dodge.width=1)) +
+  geom_quasirandom(aes(color = resampled), 
+                   method = "tukeyDense", 
+                   dodge.width= 1) +
   stat_summary(fun.y = "mean", 
                fun.ymin = "mean", 
                fun.ymax = "mean", 
@@ -696,12 +696,13 @@ plt <- ggplot(plt_dat,
   scale_x_discrete(labels = cell_names) + 
   scale_y_continuous(labels = scales::comma) + 
   scale_color_manual(values = palette_okabeito, name = "") +
-  guides(colour = guide_legend(override.aes = list(size = 2))) +
+  guides(colour = guide_legend(override.aes = list(size = 2), 
+                               nrow = 2)) +
   theme(axis.title.x = element_blank(),
         legend.position = "top",
         plot.margin = unit(c(5.5, 50.5, 5.5, 5.5), 
                            "points"),
-        legend.key.size = unit(10, "pt")) 
+        legend.key.size = unit(12, "pt")) 
 
 save_plot("new_genes_species_specific_boxplots.pdf", plt, 
            base_aspect_ratio = 1.1, base_height = 4) 
@@ -1121,9 +1122,9 @@ plt_dat <- mutate(plt_dat,
 plt <- ggplot(plt_dat, 
        aes(class, count, 
            group = resampled)) +
-  geom_jitter(aes(color = resampled),
-              size = 0.25,
-              position = position_jitterdodge(dodge.width=1)) +
+  geom_quasirandom(aes(color = resampled), 
+                   method = "tukeyDense", 
+                   dodge.width= 1) +
   stat_summary(fun.y = "mean", 
                fun.ymin = "mean", 
                fun.ymax = "mean", 
@@ -1135,12 +1136,12 @@ plt <- ggplot(plt_dat,
   scale_x_discrete(labels = cell_names) + 
   scale_y_continuous(labels = scales::comma) + 
   scale_color_manual(values = palette_okabeito, name = "") +
-  guides(colour = guide_legend(override.aes = list(size = 2))) +
+  guides(colour = guide_legend(override.aes = list(size = 2), nrow = 2)) +
   theme(axis.title.x = element_blank(),
         legend.position = "top",
         plot.margin = unit(c(5.5, 50.5, 5.5, 5.5), 
                            "points"),
-        legend.key.size = unit(10, "pt")) 
+        legend.key.size = unit(12, "pt")) 
 
 save_plot("new_umis_species_specific_boxplots.pdf", plt, 
           base_aspect_ratio = 1.1, base_height = 4) 
