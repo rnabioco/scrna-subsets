@@ -255,6 +255,10 @@ per_feature_annots <- dplyr::rename(per_feature_annots,
                                     feature = region_type,
                                     end = contig_match_end, 
                                     start = contig_match_start)
+
+per_feature_annots <- mutate(per_feature_annots, 
+                             feature = str_replace_all(feature, "-REGION", ""))
+
 aTrack <- AnnotationTrack(range = per_feature_annots, 
                           genome = "foo", 
                           showFeatureID = T, 
@@ -269,7 +273,8 @@ aTrack <- AnnotationTrack(range = per_feature_annots,
                           col.line = color_palette[1],
                           col = color_palette[1],
                           lwd = 0.5,
-                          fontsize = 4)
+                          fontsize = 8,
+                          fontsize.group=14)
 
 per_feature_cdr <- per_feature_annots %>% 
   mutate(id = "CDR3") %>% 
@@ -381,7 +386,7 @@ plot_cov <- function(fasta, tcr, bam_fns, aTrack, cdrTrack){
                    })                       
   
   options(scipen=16)
-  pdf(paste0(tcr, "_coverage.pdf"), width = 6, height = 4)
+  pdf(paste0(tcr, "_coverage.pdf"), width = 7, height = 4)
   plotTracks(c(dt1, dt2, list(aTrack), list(cdrTrack)),
              chromosome = tcr,
              from = start(fasta[[tcr]])[1], 
