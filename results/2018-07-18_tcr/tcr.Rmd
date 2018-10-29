@@ -336,8 +336,9 @@ plot_cov <- function(fasta, tcr, bam_fns, aTrack, cdrTrack){
   
   param <- ScanBamParam(which=grange_region, 
                         flag=scanBamFlag(isDuplicate=F))
-  bams <- map(bam_fns, ~readGAlignments(.x, 
-                                        param=param))
+  
+  bams <- map(bam_fns, ~readGAlignmentPairs(.x, 
+                                            param=param))
   names(bams) <- names(bam_fns)
   read_coverage <- map(bams, coverage)
   read_coverage_gr <- map(read_coverage, 

@@ -10,5 +10,8 @@ IDS:
     original: "Tcell_S1_L001"
 
 BCS_TO_KEEP: "/beevol/home/riemondy/Projects/scrna-subsets/data/tcr_resampling/resampled/fastq/original/barcodes.txt"
-REF_FA: "/beevol/home/riemondy/Projects/10x_data/tcr/results/2018-05-18_jurkat_raji/VDJ_Tcell/outs/consensus.fasta"
-
+REF_FA: "/beevol/home/riemondy/Projects/scrna-subsets/data/tcr_resampling/original/VDJ_newcellranger_Tcell/outs/consensus.fasta"
+TCRA_CONTIG:
+    "clonotype2_consensus_1"
+TCRB_CONTIG:
+    "clonotype1_consensus_1"

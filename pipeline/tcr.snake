@@ -21,6 +21,10 @@ idx_nums = [1, 2, 3, 4, "rev.1", "rev.2"]
 bt_idx_path = DBASES + "tcr/bowtie_idx/tcr"
 bt_idxs = bt_idx_path + ".1.bt2"
 
+# contigs for alignment
+TCR_A = config["TCRA_CONTIG"]
+TCR_B = config["TCRB_CONTIG"]
+
 """look up barcode file to determine name of per cell fastqs/alignments"""
     
 CELLS = []
@@ -47,9 +51,9 @@ rule align:
     idx = bt_idxs
   output:
     bam = DATA + "{projects}/bowtie2/{cell}.bam",
-    fq = DATA + "{projects}/bowtie2/{cell}_unaligned.fastq",
   params:
     idx_path = bt_idx_path,
+    fq = DATA + "{projects}/bowtie2/{cell}_unaligned.fastq",
     job_name = "{projects}.{cell}.align",
     memory = "select[mem>8] rusage[mem=8]",
   log:
@@ -58,9 +62,9 @@ rule align:
   resources: all_threads = 12
   shell:
     """
-      bowtie2 -p {threads} -q -X 1000 \
-      --rf \
-      --un  {output.fq} \
+      bowtie2 -p {threads} -q -X 10000 \
+      --fr \
+      --un-conc  {params.fq} \
       -x {params.idx_path} \
       -1 {input.R1} \
       -2 {input.R2} \
@@ -72,7 +76,7 @@ rule align:
 
 rule bowtie2_idx:
   input:
-    REF_FA,
+    path.join(DBASES, "tcr", "consensus_a_b_only.fasta")
   output:
     bt_idxs
   params:
@@ -84,6 +88,25 @@ rule bowtie2_idx:
     """
     bowtie2-build {input} {bt_idx_path}
     """
+
+rule extract_consensus_tcr_a_b:
+  input:
+    REF_FA
+  output:
+    path.join(DBASES, "tcr", "consensus_a_b_only.fasta")
+  params:
+    job_name = "extract_tcr_a_b",
+    memory = "select[mem>8] rusage[mem=8]",
+  log:
+    path.join(DBASES, "tcr", "extract_tcr_ab.txt")
+  threads: 1
+  resources: all_threads = 1
+  shell:
+    """
+    samtools faidx {input} {TCR_A} {TCR_B} > {output}
+    """
+
+ 
 rule split_to_cells:
   input:
     R1 = DATA + "{projects}/fastq/modified/R1_trimmed.fastq.gz",
