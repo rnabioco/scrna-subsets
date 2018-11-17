@@ -1,5 +1,7 @@
 # scrna-subsets
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.1490475.svg)](https://doi.org/10.5281/zenodo.1490475)
+
 This repo contains a scRNA-seq data processing pipeline and scripts for analysis for transcriptome resampling libraries. RMarkdown documents are provided to produce figures from the following publication.
 
 
